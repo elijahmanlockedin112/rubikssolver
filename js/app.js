@@ -206,6 +206,9 @@
      * choice, and leaving it up said "About 20 moves" on a cube that takes 55.
      */
     $('modes').hidden = size !== 3;
+    // Only a 3x3 has centre stickers that never move, so only a 3x3 has centres
+    // to unlock. On the others the toggle governs nothing.
+    $('centres-toggle').hidden = size !== 3;
     $('size-note').textContent = size === 3
       ? 'Scan or type it in. Two solution styles: short, or one you could learn.'
       : size === 2
@@ -700,11 +703,22 @@
   function wire() {
     $('btn-solve').addEventListener('click', doSolve);
     $('btn-example').addEventListener('click', function () {
-      colorState.set(solvedColorState());
-      var scramble = Cube.randomScramble(25);
-      var next = Cube.applySeq(colorState, scramble);
-      colorState.set(next);
-      refreshNet(); refreshViews(); save();
+      /*
+       * Scramble with the cube that is actually on screen.
+       *
+       * This used the 3x3 module whatever the size, which on a 2x2 meant
+       * pouring 54 stickers into a 24-sticker array, and on a 4x4 meant a
+       * scramble of outer turns only — one that never moves a centre or an
+       * inner slice, so the hardest part of the cube came out already solved.
+       */
+      var model = CubeN.of(size);
+      var scramble = model.randomScramble(size === 2 ? 15 : 30);
+      // Scramble the app's own solved cube, not the model's: they agree on
+      // where the faces are but not on which palette colour sits on each.
+      colorState.set(model.applySeq(solvedColorState(), scramble));
+      orientedFromScan = false;
+      unsure = {};
+      refreshNet(); refreshViews(); updateHoldLabels(); save();
       setMessage('Scrambled with: ' + scramble.join(' '), 'ok');
     });
     $('btn-solved').addEventListener('click', function () {

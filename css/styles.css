@@ -54,16 +54,17 @@ h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: 
 }
 .crumb.is-active { color: var(--text); border-color: var(--accent); background: rgba(76,141,255,0.12); }
 
-/* Only present on the in-progress branch, so there is never any doubt about
-   which build is on screen: this one is served over Tailscale, the published
-   one at github.io has no badge. */
+/* Says which cubes this solves. It was an amber warning while it marked an
+   unfinished branch; as a plain statement of fact it should not look like
+   something is wrong. */
 .dev-badge {
   font-size: 0.75rem;
+  letter-spacing: 0.02em;
   padding: 6px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 176, 32, 0.55);
-  background: rgba(255, 176, 32, 0.14);
-  color: #ffd79a;
+  border: 1px solid var(--line);
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
   white-space: nowrap;
 }
 
