@@ -182,6 +182,58 @@ check('two stickers swapped between faces is never confidently answered', (funct
   return attempted > 0 && confident === 0 && refused >= attempted * 0.9;
 })());
 
+console.log('\nfitting a 2x2 together, which has nothing but corners');
+
+/*
+ * A 2x2 has no centres and no edges — eight corners is the whole cube — so the
+ * edge pattern this file leans on for a 4x4 simply does not exist. What is left
+ * is that the corners must be the eight corners of one real colour scheme, must
+ * all wind the same way round (a cube has no mirrored corners), and must have
+ * twists adding to a multiple of three.
+ *
+ * It genuinely does not always come out to a single answer: six faces of a 2x2
+ * can fit together more than one way, which is a fact about the puzzle rather
+ * than a shortcoming here. What must never happen is a confident wrong one.
+ */
+(function () {
+  var small = CubeN.of(2);
+  var ROT2 = CubeN.rotations(2);
+  function sameSmall(a, b) {
+    for (var r = 0; r < ROT2.length; r++) {
+      var ok = true;
+      for (var i = 0; i < 24; i++) if (a[ROT2[r][i]] !== b[i]) { ok = false; break; }
+      if (ok) return true;
+    }
+    return false;
+  }
+  var exact = 0, ambiguous = 0, silentlyWrong = 0, refusedSmall = 0;
+  var runs = Math.max(40, trials);
+  for (var t2 = 0; t2 < runs; t2++) {
+    var truth2 = small.applySeq(small.SOLVED, small.randomScramble(30));
+    var order2 = shuffle([0, 1, 2, 3, 4, 5]);
+    var turns2 = order2.map(function () { return Math.floor(Math.random() * 4); });
+    var caps2 = order2.map(function (f, i) {
+      var cells = [];
+      for (var j = 0; j < 4; j++) cells.push(truth2[f * 4 + j]);
+      return A4.rotateFace(cells, 2, turns2[i]);
+    });
+    var out2 = A4.assemble(caps2, 2);
+    if (!out2.ok) { refusedSmall++; continue; }
+    if (out2.ambiguous) { ambiguous++; continue; }
+    if (sameSmall(out2.colors, truth2)) exact++; else silentlyWrong++;
+  }
+  console.log('  ' + runs + ' cubes: ' + exact + ' exact, ' + ambiguous + ' ambiguous (flagged), ' +
+    silentlyWrong + ' silently wrong, ' + refusedSmall + ' refused');
+
+  check('a 2x2 is never silently wrong', silentlyWrong === 0, silentlyWrong + ' of ' + runs);
+  check('a 2x2 always fits together somehow', refusedSmall === 0, refusedSmall + ' refused');
+
+  // Measured over 150 cubes: 115 exact, 35 ambiguous, none wrong or refused.
+  // The bar is 60%, comfortably under the 77% seen, because which cubes come
+  // out ambiguous is a property of the cube and the sample here is small.
+  check('most 2x2 cubes come out pinned to one answer', exact >= runs * 0.6, exact + '/' + runs);
+})();
+
 console.log('\n' + (failures ? failures + ' FAILURE(S)' : 'all checks passed') + '\n');
 process.exit(failures ? 1 : 0);
 

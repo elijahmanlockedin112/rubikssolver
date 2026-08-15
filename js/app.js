@@ -195,7 +195,8 @@
       b.classList.toggle('is-active', +b.dataset.size === size);
     });
     $('size-note').textContent = size === 3 ? 'Scanning and solving both work.'
-      : size === 2 ? '2×2: every solution is the shortest one that exists.'
+      : size === 2 ? '2×2: the solution is always the shortest one there is. With only corners to ' +
+        'go on, a scan sometimes fits together more than one way — it will say so, and the map is there to check.'
       : '4×4: scanning, the map and solving all work.';
     showView('setup');
     setMessage('');

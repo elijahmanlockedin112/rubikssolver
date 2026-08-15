@@ -31,11 +31,13 @@ This machine has no global git identity, so commits are made with
 3D. Two solvers: `kociemba.js` (two-phase, ~20 moves, ~250ms) and `solver.js`
 (layer-by-layer, ~110 moves in seven teachable stages).
 
-**4x4 — complete.** Model, grid detection, colour reading, face
-identification, the 96-sticker map and the 3D view all work; scanning a 4x4 lands
-correctly on the map, and solving works.
+**4x4 — complete.** Model, grid detection, colour reading, face identification,
+the 96-sticker map and the 3D view all work; scanning a 4x4 lands correctly on
+the map, and solving works — about 45 face turns via `tpr.js`.
 
-The solver is done and tested — see "The 4x4 solver" below.
+**2x2 — complete.** Scan or type, and the solution is always the shortest one
+that exists (never more than 11 moves). Scanning works, though six faces of a
+2x2 sometimes fit together more than one way and it says so.
 
 | File | Does |
 | --- | --- |
@@ -45,7 +47,10 @@ The solver is done and tested — see "The 4x4 solver" below.
 | `js/solver.js` | layer-by-layer 3x3 solver |
 | `js/detect.js` | finds an NxN grid in a photo; auto-detects size |
 | `js/assemble.js` | colour naming, and 3x3 face assembly |
-| `js/assemble4.js` | 4x4 face identification from cube structure |
+| `js/assemble4.js` | face identification from cube structure, for 2x2 and 4x4 |
+| `js/solver2.js` | optimal 2x2 solver, from a full distance table |
+| `js/tpr.js` | three-phase 4x4 solver, ~45 moves |
+| `js/solver4.js` | 4x4 by reduction — the fallback, and what the tests drive |
 | `js/repair.js` | fixes an obviously-wrong cube, refuses ambiguous ones |
 | `js/render.js` | software 3D on a 2D canvas, any size |
 | `js/scan.js`, `js/app.js` | scanner and UI |
@@ -68,7 +73,7 @@ just re-reach the same positions 24 times over.
 ### The check that proves it
 
 How many positions sit at each distance is a published result, and
- asserts it exactly:
+`test/solver2.test.js` asserts it exactly:
 
     0:1  1:9  2:54  3:321  4:1847  5:9992  6:50136
     7:227536  8:870072  9:1887748  10:623800  11:2644
@@ -82,18 +87,45 @@ ballooned (54 became 76) while the total stayed right. Each corner is now wound
 the same way as U,R,F and turned so its up-or-down sticker comes first, which
 also makes every solved corner twist zero.
 
-### What is not built
+### Scanning a 2x2
 
-**Scanning a 2x2.** The detector finds a 2x2 face fine (60/60 synthetic), but
-`assemble4.js` cannot work out which photo is which face: it does that from the
-edges — twelve of them, each appearing twice, is a demanding enough pattern that
-only the right arrangement fits — and a 2x2 has no edges at all. Eight corners do
-not pin it down, and every arrangement is refused, even six photos already in the
-right order. It now says so plainly instead of blaming the user's stickers.
-Filling the colours in on the map works.
+It works. Six photos, any order, any way up, same as the bigger cubes.
 
-Note also that a 2x2 lattice fits inside every larger grid, so 2 must stay out of
-`detectAny`'s size list or it would match anything.
+Measured over 150 cubes (photos in a random order, each turned a random way up):
+**115 exact, 35 flagged ambiguous, 0 silently wrong, 0 refused** — and through the
+whole scan path including colour clustering, 48 exact of 60 with none wrong.
+
+The ambiguity is real and will not go away. A 2x2 has no centres and no edges;
+eight corners is the entire cube, and six faces genuinely can fit together more
+than one way. Those alternatives are all solvable cubes. The app flags it and
+asks for a look at the map, which is the honest answer.
+
+Three things were needed to get from "refuses everything" to that:
+
+- **The edge and centre checks had to become conditional.** `structureOf`
+  required twelve edge colour-pairs; a 2x2 has none, so every arrangement was
+  rejected — even six photos already in the right order.
+- **Corners had to be checked for winding.** A cube has no mirrored corners.
+  Number the opposite pairs 0,1,2 and a corner read the same way round gives
+  them in the order 0,1,2 when an even number of far-side colours are used and
+  0,2,1 when odd. Mirrored arrangements pass every count and fail this. Without
+  it, nothing pinned a 2x2 down at all.
+- **Twists had to add up**, but measured against the *right* axis. The eight
+  twists come to a multiple of three only when counted against the colour pair
+  that genuinely belongs on top and bottom. Measuring against "whichever pair
+  holds colour 0" threw out true arrangements and broke a 3x3 that had been
+  fine. The corner at the bottom-back-left names the right pair.
+
+And one that was pure book-keeping: **two arrangements ending in the same cube
+are one answer, not two**. A face that is all one colour reads the same
+whichever way up it is photographed, so it turns up under several different
+order-and-rotation pairs. On a 2x2, where a face is four stickers, that is
+common enough that a third of perfectly certain cubes were calling themselves
+ambiguous.
+
+Note that 2 must stay out of `detectAny`'s size list — a 2x2 lattice fits inside
+every larger grid, so it would match anything. The app scans the size that is
+selected, which is what makes it safe.
 
 ## The 4x4 solver
 
