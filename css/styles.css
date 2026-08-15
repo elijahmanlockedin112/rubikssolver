@@ -54,6 +54,19 @@ h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: 
 }
 .crumb.is-active { color: var(--text); border-color: var(--accent); background: rgba(76,141,255,0.12); }
 
+/* Only present on the in-progress branch, so there is never any doubt about
+   which build is on screen: this one is served over Tailscale, the published
+   one at github.io has no badge. */
+.dev-badge {
+  font-size: 0.75rem;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 176, 32, 0.55);
+  background: rgba(255, 176, 32, 0.14);
+  color: #ffd79a;
+  white-space: nowrap;
+}
+
 /* ---------- layout ---------- */
 .view[hidden] { display: none; }
 .view {
