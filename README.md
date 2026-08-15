@@ -10,8 +10,8 @@ network. Open `index.html` and it works, offline, forever.
 ## Using it
 
 1. Open `index.html` in a browser.
-2. Enter your cube's colors — either **scan them with your camera** (six snaps)
-   or click them onto the flat map / the 3D cube.
+2. Enter your cube's colors — either **scan them with your camera** (six snaps,
+   any order, any way up) or click them onto the flat map / the 3D cube.
 3. Pick a solution style:
    - **Fewest moves** — around 20 moves, found by a two-phase search.
    - **Teach me** — around 110 moves in seven named stages you could learn.
@@ -45,11 +45,43 @@ To stop sharing:
 tailscale serve --https=443 off
 ```
 
-## Scanning with Gemini (optional)
+## Scanning
 
-The built-in color reader is fussy: it samples nine fixed patches out of a fixed
-square, so the cube has to be square-on and filling the frame. Handing the
-photos to a vision model removes that constraint.
+Point a face at the camera and press Snap, six times. **Any order, any way up.**
+A green outline shows when it has found the face. Reading happens on the device
+in about 50 milliseconds for the whole cube — nothing is uploaded.
+
+Three things make the loose framing possible:
+
+**Finding the face.** `js/detect.js` segments the frame into blobs, then uses
+the grid arrangement itself as the signature: nine similarly-sized square-ish
+blobs sitting in a 3×3 lattice is a cube face, and almost nothing else in a room
+is. It guesses a lattice from a pair of blobs and counts how many others land
+where that lattice predicts, so one stray blob from the background cannot invent
+a grid. A final check that the seams between stickers are darker than the
+stickers is what stops a patterned rug from passing as a cube.
+
+**Naming the colours.** Nothing is compared against a hardcoded RGB value — red
+versus orange under a warm lamp is where that always fails. The six centre
+stickers become the reference swatches, every other sticker is matched against
+*those*, and a quota forces exactly nine of each colour. Brightness is ignored
+entirely, since each face is shot under its own light.
+
+**Working out which face is which, and which way up.** The centre sticker never
+moves, so it names the face — photograph them in any order. For rotation, all
+4⁶ = 4096 combinations are tried and the one that assembles into a *physically
+possible cube* wins. Validity is an extremely tight filter: every one of the
+twelve edges and eight corners has to be a real piece, appearing exactly once,
+with the corner twists and edge flips adding up. Usually exactly one combination
+survives; when more than one does, the app says so rather than guessing quietly.
+
+## Scanning with Gemini (fallback)
+
+The on-device reader handles ordinary photos fine. If it genuinely cannot make
+the six photos add up — a badly blurred shot, a colour it could not call — the
+same six images can get a second opinion from a vision model. This is a safety
+net, not the main road: with no key configured, `/api/scan` returns 501 and the
+app just reports what it could not work out.
 
 ```bash
 cp .env.example .env      # then paste your key into GEMINI_API_KEY
@@ -62,25 +94,19 @@ which models exist and picks a current vision-capable one, so nothing here
 breaks when model names change. With no key present, `/api/scan` returns 501 and
 the app silently uses the built-in reader instead.
 
-Point the face at the camera and press the button — angle, distance and framing
-are all loose, because the reader on the other end can find the cube in the
-photo. All six photos go up in a single request, so the model can compare colors
-across faces rather than judging each in isolation, which is exactly what
-red-versus-orange needs.
+All six photos go up in a single request, so the model can compare colors across
+faces rather than judging each in isolation — which is exactly what
+red-versus-orange needs. It is asked only for nine colors per photo; which face
+is which and which way up is worked out afterwards by the same assembler the
+on-device reader uses.
 
-- `Cube.validate()` decides whether the answer is a physically possible cube. If
-  it isn't, the specific complaint ("that is not a physically possible cube:
-  one edge is flipped in place") goes back to the model and it tries again,
-  twice at most.
-- Whatever the model itself flags as uncertain gets outlined on the map.
+- The assembler decides whether the answer can be a real cube. If it cannot, the
+  specific complaint goes back to the model and it tries again, twice at most.
 - The newest model is also the busiest, so a "high demand" failure is retried
   and then falls back to the next model down the ranking.
-
-The built-in classifier is **only** a fallback for when the server or the API is
-unreachable. It is not used as a second opinion, because it samples nine fixed
-patches from the middle of the frame — so unless the face happens to be square-on
-it disagrees constantly, and cross-checking a reliable reader against an
-unreliable one produces noise, not signal.
+- Model choice comes from the API's own catalogue, with specialised variants
+  (image, tts, video, robotics) excluded — a name can advertise the newest
+  family and still be tuned for something else entirely.
 
 ## What's inside
 
@@ -90,7 +116,9 @@ unreliable one produces noise, not signal.
 | `js/kociemba.js` | Two-phase solver. Builds ~4 MB of move and pruning tables, then runs two IDA\* searches. Typically 20 moves in ~250 ms. |
 | `js/solver.js` | Layer-by-layer beginner solver: bottom cross, bottom corners, middle edges, top cross, top face, place corners, last edges. |
 | `js/render.js` | A small software 3D renderer on a 2D canvas — 27 cubies, painter's algorithm, backface culling, animated layer turns and curved direction arrows. No WebGL, no libraries. |
-| `js/scan.js` | Camera scanning. Six guided captures with auto-capture once the cube is held still, then the photos go to both readers. |
+| `js/detect.js` | Finds the 3×3 grid in a photo: blob segmentation, a RANSAC-style lattice search, and a check that the seams are darker than the stickers. Runs in a few milliseconds, so it also drives the live outline. |
+| `js/assemble.js` | Names the colors against the six centres with a nine-per-color quota, then fits six unordered, arbitrarily-rotated faces into one cube by finding the arrangement that is physically possible. |
+| `js/scan.js` | Camera scanning: six snaps, any order, any way up, read on the device. |
 | `tools/gemini.js` | Prompt, response parsing, cube validation and model selection for the Gemini reader. Deliberately I/O-free so it can be tested without a key. |
 | `tools/serve.js` | Static server plus `POST /api/scan` — the only place the API key exists. |
 | `js/app.js` | The editor, the validation messages, and the step player. |
@@ -107,15 +135,13 @@ Rather than accepting the first answer, the search keeps feeding it better
 phase-1 sequences and keeps the shortest total it finds within its time budget.
 Result: about 20 moves on average, 22 at worst over thousands of scrambles.
 
-### How the scanner decides what's red
+### Unused, on purpose
 
-Fixed RGB thresholds fall apart under a warm lamp, and red versus orange is the
-classic failure. So nothing is compared against a hardcoded color: the six
-center stickers are the reference swatches, every other sticker is matched
-against *those*, and a quota forces exactly nine of each color. Brightness is
-ignored entirely (each face is shot under its own light); only hue and
-saturation are compared. Whatever it still gets wrong is one click to fix on
-the map.
+An earlier version cross-checked the two readers and flagged every sticker they
+disagreed about. That was dropped: the old reader sampled nine fixed patches
+from a fixed square, so unless the cube was square-on it disagreed constantly,
+and checking a reliable reader against an unreliable one produces noise rather
+than signal.
 
 ## Tests
 
@@ -133,6 +159,15 @@ node test/solver.test.js 1000
   coordinate round-trips, then solves random scrambles and checks each result.
 - `test/solver.test.js` — move engine identities, the properties each
   beginner-method algorithm is relied on for, the validator, and full solves.
+- `test/detect.test.js` — paints synthetic photos of a face (rotated,
+  off-centre, any size, random backgrounds, uneven light) and checks the grid is
+  located to within a few percent of a cell, that a plain wall and an empty
+  frame are refused, and that six photos run straight through to a finished cube.
+- `test/assemble.test.js` — photographs cubes in random face order at random
+  rotations under awkward light and checks the cube comes back exactly. Also
+  checks the failure modes: a face shot twice, a misread sticker, and the rare
+  case where the photos fit together two different ways, which must be flagged
+  rather than returned quietly.
 - `test/gemini.test.js` — fabricated model responses through the real parse,
   validate and model-selection paths. No key, no network.
 - `test/gemini-live.test.js` — renders six synthetic photos of a known cube,

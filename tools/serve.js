@@ -113,8 +113,7 @@ function callGemini(model, parts) {
  * was wrong and asks again (twice at most).
  */
 function scanImages(images) {
-  var faceOrder = images.map(function (im) { return im.face; });
-  var baseParts = [{ text: Gemini.buildPrompt(faceOrder) }];
+  var baseParts = [{ text: Gemini.buildPrompt(images.length) }];
   images.forEach(function (im) {
     baseParts.push({ inlineData: { mimeType: im.mimeType || 'image/jpeg', data: im.data } });
   });
@@ -147,13 +146,22 @@ function scanImages(images) {
       return withCapacity(models, parts, 2).then(function (out) {
         usedModel = out.model;
         var payload = out.payload;
-        var parsed = Gemini.parseFaces(payload);
+        var parsed = Gemini.parsePhotos(payload, images.length);
         var complaint = parsed.problems.length
           ? parsed.problems.slice(0, 4).join('; ')
           : Gemini.checkCube(parsed.colors);
 
         if (!complaint) {
-          return { colors: Array.from(parsed.colors), uncertain: parsed.uncertain, rounds: round + 1, model: usedModel };
+          // hand back the finished cube as well as the raw per-photo readings,
+          // so the browser does not have to redo the assembly
+          var built = Gemini.toCube(parsed.colors);
+          return {
+            colors: Array.from(parsed.colors),
+            cube: built.ok ? Array.from(built.colors) : null,
+            ambiguous: !!built.ambiguous,
+            rounds: round + 1,
+            model: usedModel
+          };
         }
         if (round >= 2) {
           // Out of retries: hand back the best read we have and let the user fix it.

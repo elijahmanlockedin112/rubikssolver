@@ -275,27 +275,19 @@ h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: 
   overflow: hidden;
 }
 #scan-video { width: 100%; height: 100%; object-fit: contain; display: block; }
-.scan-guide {
-  position: absolute; inset: 9% 14%;
-  border: 2px dashed rgba(255, 255, 255, 0.32);
-  border-radius: 16px;
+.scan-overlay {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
   pointer-events: none;
-}
-.scan-shot {
-  position: absolute; right: 8px; bottom: 8px;
-  width: 26%; border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
 }
 .scan-buttons { justify-content: center; }
 .btn-snap { min-width: 190px; font-size: 1rem; padding: 13px 20px; }
-.scan-thumbs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 12px 0 4px; }
-.scan-dot {
-  font-size: 0.72rem; padding: 3px 9px; border-radius: 999px;
-  border: 1px solid var(--line); color: var(--text-dim);
+.scan-thumbs { display: flex; gap: 8px; justify-content: center; margin: 14px 0 4px; }
+.scan-chip {
+  width: 26px; height: 26px; border-radius: 7px;
+  border: 1px dashed var(--line); background: transparent;
 }
-.scan-dot.is-done { border-color: var(--accent-2); color: var(--accent-2); }
-.scan-dot.is-current { border-color: var(--accent); color: var(--text); background: rgba(76,141,255,0.14); }
+.scan-chip.is-done { border-style: solid; border-color: rgba(255, 255, 255, 0.45); }
 
 /* stickers the reader flagged as uncertain */
 .sticker.is-unsure {

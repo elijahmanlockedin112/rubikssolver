@@ -13,6 +13,7 @@ var zlib = require('zlib');
 
 var BASE_URL = process.env.SCAN_URL || 'http://localhost:8123';
 var Cube = require('../js/cube.js');
+var Assemble = require('../js/assemble.js');
 
 var failures = 0;
 function check(name, cond, extra) {
@@ -147,10 +148,19 @@ function faceReport(truth, got, face) {
 
   var truth = Cube.applySeq(solvedColors(), Cube.parse("R U R' U' F2 L D2 B' R F"));
 
-  var images = CAPTURE_ORDER.map(function (step, n) {
-    // vary the lighting a little per face, the way six real photos would
-    var png = renderFace(truth, step.face, { shade: 1 - n * 0.045, bg: [46 + n * 3, 48, 54] });
-    return { face: step.letter, mimeType: 'image/png', data: png.toString('base64') };
+  // Photograph the faces in a jumbled order, each turned a different way up —
+  // exactly what the app now allows, and what the server has to undo.
+  var order = [3, 5, 0, 4, 1, 2];
+  var turns = [0, 1, 2, 3, 1, 0];
+  var images = order.map(function (face, n) {
+    var cells = [];
+    for (var i = 0; i < 9; i++) cells.push(truth[face * 9 + i]);
+    cells = Assemble.rotateFace(cells, turns[n]);
+    var rotated = new Int8Array(54);
+    for (var k = 0; k < 9; k++) rotated[face * 9 + k] = cells[k];
+    // vary the lighting a little per photo, the way six real ones would
+    var png = renderFace(rotated, face, { shade: 1 - n * 0.045, bg: [46 + n * 3, 48, 54] });
+    return { photo: n + 1, mimeType: 'image/png', data: png.toString('base64') };
   });
 
   var started = Date.now();
@@ -171,13 +181,13 @@ function faceReport(truth, got, face) {
   console.log('  answered in ' + elapsed + 's after ' + json.rounds + ' round(s)' +
     (json.warning ? ' — warning: ' + json.warning : ''));
 
-  check('returned 54 stickers', Array.isArray(json.colors) && json.colors.length === 54);
-  if (!Array.isArray(json.colors) || json.colors.length !== 54) {
+  check('returned an assembled cube', Array.isArray(json.cube) && json.cube.length === 54);
+  if (!Array.isArray(json.cube) || json.cube.length !== 54) {
     console.log('\n1 FAILURE(S)\n');
     process.exitCode = 1; return;
   }
 
-  var got = Int8Array.from(json.colors);
+  var got = Int8Array.from(json.cube);
   var wrong = [];
   for (var i = 0; i < 54; i++) if (got[i] !== truth[i]) wrong.push(i);
 

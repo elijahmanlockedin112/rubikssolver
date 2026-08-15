@@ -146,8 +146,7 @@
     <p id="scan-tip" class="hint"></p>
     <div class="scan-stage">
       <video id="scan-video" playsinline muted autoplay></video>
-      <div class="scan-guide" aria-hidden="true"></div>
-      <img id="scan-shot" class="scan-shot" alt="last photo taken" hidden>
+      <canvas id="scan-overlay" class="scan-overlay" aria-hidden="true"></canvas>
     </div>
     <div id="scan-thumbs" class="scan-thumbs"></div>
     <div class="row-buttons scan-buttons">
@@ -157,8 +156,8 @@
     </div>
     <p id="scan-message" class="message"></p>
     <p class="caption">
-      Get the face somewhere in the frame — angle and distance don't matter much.
-      Just make sure it's the only cube face pointing at the camera.
+      A green outline means it has found the face. Angle, distance and which way
+      up all sort themselves out — it reads the cube on this device, instantly.
     </p>
     <canvas id="scan-canvas" hidden></canvas>
   </div>
@@ -181,6 +180,8 @@
 <script src="js/solver.js"></script>
 <script src="js/kociemba.js"></script>
 <script src="js/render.js"></script>
+<script src="js/detect.js"></script>
+<script src="js/assemble.js"></script>
 <script src="js/scan.js"></script>
 <script src="js/app.js"></script>
 </body>

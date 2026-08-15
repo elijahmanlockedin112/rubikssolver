@@ -5,6 +5,7 @@
  * validate-and-retry logic can be tested without a key (see test/gemini.test.js).
  */
 var Cube = require('../js/cube.js');
+var Assemble = require('../js/assemble.js');
 
 // Display palette order used everywhere in the app.
 var COLOR_NAMES = ['white', 'yellow', 'green', 'blue', 'red', 'orange'];
@@ -30,41 +31,45 @@ function colorToIndex(name) {
 var RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
-    faces: {
+    photos: {
       type: 'array',
       items: {
         type: 'object',
         properties: {
-          face: { type: 'string', enum: FACE_LETTERS },
+          photo: { type: 'integer' },
           stickers: { type: 'array', items: { type: 'string', enum: COLOR_NAMES } },
           uncertain: { type: 'array', items: { type: 'integer' } }
         },
-        required: ['face', 'stickers']
+        required: ['photo', 'stickers']
       }
     }
   },
-  required: ['faces']
+  required: ['photos']
 };
 
-function buildPrompt(faceOrder) {
-  var lines = faceOrder.map(function (letter, i) {
-    return '  Image ' + (i + 1) + ' = the ' + FACE_WORDS[letter].toUpperCase() +
-      ' face (report it as "' + letter + '").';
-  });
+/**
+ * The photos are in no particular order and each may be turned any way up —
+ * which face is which, and which way round, is worked out afterwards from the
+ * centre colours and from what assembles into a real cube. So all this asks
+ * for is nine colours per photo, exactly as they appear.
+ */
+function buildPrompt(count) {
+  count = count || 6;
   return [
     'You are reading the sticker colors off a 3x3 Rubik\'s cube.',
     '',
-    'There are six photos, each showing one face of the same cube, held the right way up:',
-    lines.join('\n'),
+    'There are ' + count + ' photos, each showing one face of the same cube. They are in no',
+    'particular order, and each may be turned any way up — that is fine and expected, and is',
+    'sorted out later. Do not try to work out which face is which, and do not reorder anything.',
     '',
     'The photos are handheld, so a face may be tilted, off-centre, lit unevenly, or small in',
     'the frame, and part of a neighbouring face may be visible down one side. Find the face',
     'that is pointing at the camera and read only that one.',
     '',
     'For each photo, report the 9 sticker colors in reading order: top-left, top-middle,',
-    'top-right, middle-left, center, middle-right, bottom-left, bottom-middle, bottom-right.',
-    'Rows and columns are the cube\'s own, so follow the tilt of the cube rather than the edges',
-    'of the photo. Do not rotate or mirror anything beyond that.',
+    'top-right, middle-left, center, middle-right, bottom-left, bottom-middle, bottom-right,',
+    'and give its 1-based position in the list as "photo". Rows and columns are the cube\'s own,',
+    'so follow the tilt of the cube rather than the edges of the photo.',
     '',
     'Rules:',
     '- Use only these color names: ' + COLOR_NAMES.join(', ') + '.',
@@ -73,54 +78,58 @@ function buildPrompt(faceOrder) {
     '- Judge each color against the other stickers in the same photo, not against an absolute',
     '  idea of the color. Warm indoor light makes white look cream and can push red toward orange.',
     '- Red and orange are the pair people get wrong: orange is noticeably lighter and more yellow.',
-    '  Compare them side by side across all six photos before deciding.',
+    '  Compare them side by side across all the photos before deciding.',
     '- Ignore glare, shadows, the black plastic between stickers, and anything behind the cube.',
     '- List the 0-based positions you are genuinely unsure about in "uncertain".'
   ].join('\n');
 }
 
 /**
- * Turn the model's JSON into 54 palette indices.
- * Returns { colors, uncertain, problems } — problems is non-empty when the
- * answer was structurally wrong (missing faces, bad color words, wrong count).
+ * Turn the model's JSON into 54 palette indices, laid out in the order the
+ * photos were taken (photo * 9 + cell) — not in cube order, which is decided
+ * later by the assembler.
+ * Returns { colors, uncertain, problems }.
  */
-function parseFaces(payload) {
+function parsePhotos(payload, count) {
+  count = count || 6;
   var problems = [];
-  var colors = new Int8Array(54).fill(-1);
+  var colors = new Int8Array(count * 9).fill(-1);
   var uncertain = [];
 
-  var faces = payload && payload.faces;
-  if (!Array.isArray(faces)) return { colors: null, uncertain: [], problems: ['no "faces" array in the response'] };
+  var photos = payload && (payload.photos || payload.faces);
+  if (!Array.isArray(photos)) {
+    return { colors: null, uncertain: [], problems: ['no "photos" array in the response'] };
+  }
 
   var seen = {};
-  faces.forEach(function (entry) {
-    var letter = entry && typeof entry.face === 'string' ? entry.face.trim().toUpperCase() : '';
-    var face = FACE_LETTERS.indexOf(letter);
-    if (face < 0) { problems.push('unknown face "' + (entry && entry.face) + '"'); return; }
-    if (seen[letter]) { problems.push('face ' + letter + ' reported twice'); return; }
-    seen[letter] = true;
+  photos.forEach(function (entry, position) {
+    // trust the stated number, fall back to the order it arrived in
+    var index = entry && typeof entry.photo === 'number' ? Math.round(entry.photo) - 1 : position;
+    if (!(index >= 0 && index < count)) { problems.push('photo number ' + (entry && entry.photo) + ' is out of range'); return; }
+    if (seen[index]) { problems.push('photo ' + (index + 1) + ' reported twice'); return; }
+    seen[index] = true;
 
     var stickers = entry.stickers;
     if (!Array.isArray(stickers) || stickers.length !== 9) {
-      problems.push('face ' + letter + ' has ' + (Array.isArray(stickers) ? stickers.length : 0) + ' stickers instead of 9');
+      problems.push('photo ' + (index + 1) + ' has ' + (Array.isArray(stickers) ? stickers.length : 0) + ' stickers instead of 9');
       return;
     }
     for (var i = 0; i < 9; i++) {
       var idx = colorToIndex(stickers[i]);
-      if (idx < 0) { problems.push('face ' + letter + ' position ' + i + ' is not a cube color ("' + stickers[i] + '")'); continue; }
-      colors[face * 9 + i] = idx;
+      if (idx < 0) { problems.push('photo ' + (index + 1) + ' position ' + i + ' is not a cube color ("' + stickers[i] + '")'); continue; }
+      colors[index * 9 + i] = idx;
     }
     if (Array.isArray(entry.uncertain)) {
       entry.uncertain.forEach(function (pos) {
-        if (typeof pos === 'number' && pos >= 0 && pos < 9) uncertain.push(face * 9 + pos);
+        if (typeof pos === 'number' && pos >= 0 && pos < 9) uncertain.push(index * 9 + pos);
       });
     }
   });
 
-  FACE_LETTERS.forEach(function (letter) {
-    if (!seen[letter]) problems.push('face ' + letter + ' is missing');
-  });
-  for (var k = 0; k < 54; k++) if (colors[k] < 0 && !problems.length) problems.push('sticker ' + k + ' was never given a color');
+  for (var p = 0; p < count; p++) if (!seen[p]) problems.push('photo ' + (p + 1) + ' is missing');
+  for (var k = 0; k < colors.length; k++) {
+    if (colors[k] < 0 && !problems.length) problems.push('sticker ' + k + ' was never given a color');
+  }
 
   return { colors: problems.length ? null : colors, uncertain: uncertain, problems: problems };
 }
@@ -133,21 +142,27 @@ function quotaReport(colors) {
 }
 
 /**
- * Is this a cube that could actually exist? Returns null when fine, or a
- * sentence to hand back to the model when not.
+ * Could these readings be a real cube? The photos are unordered and unaligned,
+ * so this hands them to the same assembler the on-device reader uses: it tries
+ * every way the six faces could fit together and reports whether any of them
+ * is a physically possible cube.
+ * Returns null when fine, or a sentence to hand back to the model when not.
  */
 function checkCube(colors) {
   var counts = [0, 0, 0, 0, 0, 0];
-  for (var i = 0; i < 54; i++) counts[colors[i]]++;
+  for (var i = 0; i < colors.length; i++) counts[colors[i]]++;
   for (var c = 0; c < 6; c++) {
     if (counts[c] !== 9) {
       return 'The counts are wrong (' + quotaReport(colors) + '). Every color must appear exactly 9 times.';
     }
   }
-  var solverState = Cube.toSolverSpace(colors);
-  if (!solverState) return 'Two faces were given the same center color. The six centers must all differ.';
-  var verdict = Cube.validate(solverState);
-  return verdict.ok ? null : 'That is not a physically possible cube: ' + verdict.message;
+  var built = Assemble.assembleFromColors(colors);
+  return built.ok ? null : built.message;
+}
+
+/** Assemble a set of readings into cube order. */
+function toCube(colors) {
+  return Assemble.assembleFromColors(colors);
 }
 
 /** Which stickers do the two readers disagree about? */
@@ -216,8 +231,9 @@ module.exports = {
   FACE_LETTERS: FACE_LETTERS,
   RESPONSE_SCHEMA: RESPONSE_SCHEMA,
   buildPrompt: buildPrompt,
-  parseFaces: parseFaces,
+  parsePhotos: parsePhotos,
   checkCube: checkCube,
+  toCube: toCube,
   crossCheck: crossCheck,
   quotaReport: quotaReport,
   chooseModel: chooseModel,
