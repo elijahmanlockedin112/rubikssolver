@@ -117,6 +117,25 @@
     if (!captures || captures.length !== 6) {
       return { ok: false, message: 'Six faces are needed; got ' + (captures ? captures.length : 0) + '.' };
     }
+    /*
+     * Which photo is which face is worked out from the edges: twelve of them,
+     * each turning up twice, is a demanding enough pattern that only the right
+     * arrangement satisfies it. A 2x2 has no edges at all, only eight corners,
+     * and those do not pin it down — every arrangement gets refused, even six
+     * photos already in the right order.
+     *
+     * So say that, rather than falling through to the usual refusal and
+     * blaming the user's stickers for something this cannot do yet.
+     */
+    if (N < 3) {
+      return {
+        ok: false,
+        unsupported: true,
+        message: 'Scanning a 2×2 is not built yet: it has no edges, and edges are what work out which ' +
+          'photo is which face. Fill the colours in on the map instead — solving a 2×2 works, and ' +
+          'always gives the shortest solution there is.'
+      };
+    }
     var per = N * N;
     var layout = CubeN.pieces(N);
 

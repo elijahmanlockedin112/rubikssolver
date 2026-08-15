@@ -50,6 +50,51 @@ The solver is done and tested — see "The 4x4 solver" below.
 | `js/render.js` | software 3D on a 2D canvas, any size |
 | `js/scan.js`, `js/app.js` | scanner and UI |
 
+## The 2x2 solver (js/solver2.js)
+
+Optimal, and provably so. A 2x2 is eight corners and nothing else, and with one
+corner held still the whole puzzle is 7! x 3^6 = **3,674,160** positions - few
+enough to walk outward from solved once and record the true distance to every
+single one. Solving is then not a search: read the distance, step to a neighbour
+one closer, repeat. The table builds in 150ms.
+
+Measured over 500 cubes: **500 solved and verified, 5-11 moves, median 9**. No
+2x2 needs more than 11 and this never returns more.
+
+Holding the back-bottom-left corner still and turning only U, R and F is what
+keeps it small: nothing pins a 2x2’s orientation, so the other three faces would
+just re-reach the same positions 24 times over.
+
+### The check that proves it
+
+How many positions sit at each distance is a published result, and
+ asserts it exactly:
+
+    0:1  1:9  2:54  3:321  4:1847  5:9992  6:50136
+    7:227536  8:870072  9:1887748  10:623800  11:2644
+
+A wrong move table does not land on that by luck. It caught a real bug here:
+twist has to be counted the same way round on every corner, or adding two twists
+together is meaningless - and adding twists is exactly what the move tables do.
+Ordering each corner’s stickers by face number does NOT give that; it winds one
+way on some corners and the other way on their neighbours. The counts near solved
+ballooned (54 became 76) while the total stayed right. Each corner is now wound
+the same way as U,R,F and turned so its up-or-down sticker comes first, which
+also makes every solved corner twist zero.
+
+### What is not built
+
+**Scanning a 2x2.** The detector finds a 2x2 face fine (60/60 synthetic), but
+`assemble4.js` cannot work out which photo is which face: it does that from the
+edges — twelve of them, each appearing twice, is a demanding enough pattern that
+only the right arrangement fits — and a 2x2 has no edges at all. Eight corners do
+not pin it down, and every arrangement is refused, even six photos already in the
+right order. It now says so plainly instead of blaming the user's stickers.
+Filling the colours in on the map works.
+
+Note also that a 2x2 lattice fits inside every larger grid, so 2 must stay out of
+`detectAny`'s size list or it would match anything.
+
 ## The 4x4 solver
 
 `js/solver4.js`, tested by `test/solver4.test.js`. Measured over 150 random

@@ -194,8 +194,8 @@
     document.querySelectorAll('.size-option').forEach(function (b) {
       b.classList.toggle('is-active', +b.dataset.size === size);
     });
-    $('size-note').textContent = size === 3
-      ? 'Scanning and solving both work.'
+    $('size-note').textContent = size === 3 ? 'Scanning and solving both work.'
+      : size === 2 ? '2×2: every solution is the shortest one that exists.'
       : '4×4: scanning, the map and solving all work.';
     showView('setup');
     setMessage('');
@@ -361,7 +361,8 @@
   }
 
   function doSolve() {
-    if (size === 4) { solveBigCube(); return; }
+    if (size === 2) { solveWith(Solver2, 'Working out the shortest solution…'); return; }
+    if (size === 4) { solveWith(Solver4, 'Working out a solution…'); return; }
     if (size !== 3) {
       setMessage('Solving a ' + size + '×' + size + ' is still being built. The map and the 3D view ' +
         'work — scan one and have a look — but there is no solution to follow yet.', 'error');
@@ -425,17 +426,18 @@
   }
 
   /**
-   * Solve a 4x4.
+   * Solve a cube with no fixed centres — a 2x2 or a 4x4.
    *
-   * The reduction solver works the cube out for itself — which colour belongs
-   * on which face included, since a 4x4 has no fixed centre to say — so the
-   * only thing to check here is that every sticker has a colour. Anything
-   * beyond that it explains itself, and it refuses rather than guessing.
+   * Both work out for themselves which colour belongs on which face, because
+   * neither has a centre sticker to say, so the only thing to check here is
+   * that no sticker has been left blank. Anything past that they explain
+   * themselves, and both refuse rather than guess.
    *
-   * There is no "fewest moves" option at this size: reduction is the only
-   * practical method, so both speed settings run the same solve.
+   * Neither offers a "fewest moves" choice, but for opposite reasons: a 2x2 is
+   * small enough that the answer is always the shortest one there is, and a 4x4
+   * is big enough that reduction is the only practical method.
    */
-  function solveBigCube() {
+  function solveWith(solver, working) {
     for (var i = 0; i < colorState.length; i++) {
       if (colorState[i] < 0) {
         setMessage('Every sticker needs a colour before solving. Fill in the gaps and try again.', 'error');
@@ -443,11 +445,11 @@
       }
     }
     repairNote = null;
-    setMessage('Working out a solution…');
+    setMessage(working);
     setTimeout(function () {
       var out;
       try {
-        out = Solver4.solve(colorState);
+        out = solver.solve(colorState);
       } catch (err) {
         setMessage('Something went wrong solving that cube: ' + err.message, 'error');
         return;
