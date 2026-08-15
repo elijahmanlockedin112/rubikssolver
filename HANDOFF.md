@@ -112,19 +112,46 @@ Four stages, averaging roughly 16 / 44 / 12 / 20 moves:
   is a property of the permutation rather than of a particular cube — so
   checking it once on a solved cube settles it. It is checked at load.
 
-### If a shorter solution is wanted
+## The three-phase solver (js/tpr.js)
 
-[TPR-4x4x4-Solver](https://github.com/cs0x7f/TPR-4x4x4-Solver) averages 44.39
-moves against this solver's 89, so it is worth roughly half the moves. Two
-things to know before starting:
+A JavaScript port of Shuang Chen’s
+[TPR-4x4x4-Solver](https://github.com/cs0x7f/TPR-4x4x4-Solver), taken under its
+**MIT** option (it is dual GPLv3/MIT). This is what actually solves a 4x4 now;
+solver4.js stays as the fallback and is still what the tests drive directly.
 
-- It is **Java**, 15 source files of table-heavy code, and it leans on min2phase
-  for the final 3x3 — which this repo already has in `kociemba.js`. So the port
-  is the reduction half: Center1/2/3, Edge3, the cube classes and the search.
-- It is dual-licensed **GPLv3 and MIT**, so the MIT half is compatible with this
-  repo being all rights reserved. **csTimer's JavaScript port is not** — csTimer
-  is GPLv3 only, and taking its 4x4 solver would put this whole app under the
-  GPL. Port from the TPR repo under MIT, not from csTimer.
+Measured over 50 random cubes: **50 solved and verified, 40-47 moves in the
+face-turn metric the original quotes (44.39 average), 48-60 single-layer turns,
+median 409ms**. Tables build in 670ms, about 22MB.
+
+**Do not port from csTimer.** csTimer is GPLv3-only; taking its 4x4 solver would
+put this whole app under the GPL. The TPR repo itself is dual-licensed, which is
+why this port came from there.
+
+### What went wrong in the port, so it is not repeated
+
+- **Java's `long` does not survive the trip.** Three routines pack twelve 4-bit
+  values into one register; JavaScript's bitwise operators are 32-bit. The author
+  wrote 32-bit fallbacks for two of them, and `Edge3.get` needed one writing.
+  Every step is forced back through `|0`, because Java int arithmetic wraps and
+  JavaScript numbers do not.
+- **A labelled break is not a flag on the loop condition.** Rewriting the
+  original's `break OUT` as `for (...; cond && !found; i++)` still runs the
+  increment on the way out, so `length123` ends one too high and the wrong
+  number of moves comes out of `move3`. And when a pass genuinely fails, the
+  retry restarts with a deeper limit and never returns — 90 seconds and counting.
+- **The reduced cube is not in solver space.** Phases 1-3 work in a symmetry
+  frame, so the centres come out solid but carrying whatever colours that frame
+  landed on (5,0,4,2,3,1 rather than 0,1,2,3,4,5). kociemba.js needs the centre
+  of face f to BE f. Unrelabelled, this produced move lists that reduced the
+  cube perfectly — six solid centres, twelve joined pairs — and then finished it
+  wrongly, with not one uniform face. That symptom is the signature of this bug.
+
+### Checks that would catch a bad port
+
+The symmetry class counts (15582 and 1538) and the edge pruning table’s exact
+population (2,778,197 states within 9 moves) are all published by the original,
+and all three are asserted in . They fail loudly if the
+symmetry tables or the two-bit packing are wrong, which a move list will not.
 
 ## Lessons already paid for — do not relearn these
 

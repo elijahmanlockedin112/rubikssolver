@@ -161,19 +161,14 @@ console.log('  ' + trials + ' cubes: ' + solvedCount + ' solved, ' + refused + '
 
 check('every scrambled cube comes out solved', solvedCount === trials, solvedCount + '/' + trials);
 
-// Measured over 150 random cubes: all 150 solved, 65 to 112 moves, median 89,
-// 90th percentile 104. Reduction is not
-// a short method and there is no practical optimal solver at this size, so the
-// bar is about catching a stage that has started flailing, not move-count
-// tuning. 150 leaves room above the worst seen.
+// Measured over 25 cubes with tpr.js present: 50-60 moves, median 55, because
+// the three-phase solver does the work. Without it this file falls back to its
+// own reduction, which measured 65-116 over 300 cubes. The bar covers both.
 check('the solution stays a sensible length', longest <= 150, 'longest was ' + longest);
 
-// Measured over 300 random cubes: median 991ms, 95th percentile 3095ms, 99th
-// 4870ms — but a long tail, worst seen 25658ms. The tail is the last-two-edges
-// escape: when it finds nothing it has still tried every combination it was
-// allowed. The bar is set above the worst measured rather than at the median,
-// because what it is guarding against is a stage that never returns, not a
-// slow one.
+// Measured with tpr.js present: median 386ms, worst 1469ms over 25 cubes. The
+// fallback reduction is far slower and has a long tail (worst seen 25.7s), so
+// the bar stays high enough to cover it rather than only the fast path.
 check('a cube is always solved in bounded time', slowest <= 40000, 'slowest was ' + slowest + 'ms');
 
 console.log('\nrefusing what cannot be solved');

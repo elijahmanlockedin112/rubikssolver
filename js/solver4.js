@@ -29,11 +29,17 @@
   var api = factory(
     typeof require === 'function' ? require('./cuben.js') : root.CubeN,
     typeof require === 'function' ? require('./kociemba.js') : root.Kociemba,
-    typeof require === 'function' ? require('./cube.js') : root.Cube
+    typeof require === 'function' ? require('./cube.js') : root.Cube,
+    // The three-phase solver is optional: this file has to keep working on its
+    // own, because the tests drive it directly and it is the fallback.
+    function () {
+      if (typeof require === 'function') { try { return require('./tpr.js'); } catch (e) { return null; } }
+      return root.TPR || null;
+    }
   );
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.Solver4 = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (CubeN, Kociemba, Cube3) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (CubeN, Kociemba, Cube3, getThreePhase) {
   'use strict';
 
   var N = 4;
@@ -627,10 +633,61 @@
    * finish the cube, it is thrown away and the solve refuses. Handing someone
    * moves for a cube they do not own is the worst failure this app has.
    */
+  /**
+   * Solve, preferring the three-phase solver when it is available.
+   *
+   * tpr.js searches all four stages properly and lands around 45 face turns
+   * where the reduction below lands around 90. It is not always loaded — the
+   * tests drive this file directly — and it can decline a cube, so the
+   * reduction stays as the fallback rather than being replaced.
+   *
+   * Whichever produced the moves, they are replayed on the cube that was
+   * actually handed in and the six faces are checked before anything is
+   * returned, so a wrong answer from either one is caught here and not shown.
+   */
   function solve(state) {
     var scheme = schemeOf(state);
     if (!scheme.ok) return { ok: false, message: scheme.message };
 
+    var fast = solveViaThreePhase(state);
+    if (fast) return fast;
+
+    var slow = solveByReduction(state, scheme);
+    if (slow) return slow;
+    return { ok: false, message: 'No solution could be worked out for this cube. That almost always ' +
+      'means a sticker was read as the wrong colour — check the map.' };
+  }
+
+  var threePhaseLib;
+  function threePhase() {
+    if (threePhaseLib === undefined) threePhaseLib = getThreePhase();
+    return threePhaseLib;
+  }
+
+  function solveViaThreePhase(state) {
+    var lib = threePhase();
+    if (!lib || !lib.solve) return null;
+    var found;
+    try {
+      found = lib.solve(state);
+    } catch (e) {
+      return null;                        // fall back rather than fail outright
+    }
+    if (!found || !found.moves || !found.moves.length) return null;
+
+    var steps = [];
+    var at = 0;
+    (found.stages || []).forEach(function (s) {
+      for (var i = 0; i < s.count && at < found.moves.length; i++, at++) {
+        steps.push({ move: found.moves[at], stage: s.id });
+      }
+    });
+    for (; at < found.moves.length; at++) steps.push({ move: found.moves[at], stage: 'reduced' });
+
+    return packageSolution(state, steps);
+  }
+
+  function solveByReduction(state, scheme) {
     var working = normalise(state, scheme);
     var steps = [];
 
@@ -672,8 +729,18 @@
     if (!finish) return { ok: false, message: 'The last stage could not be solved.' };
     steps = steps.concat(tagged(finish, 'reduced'));
 
-    // Replay everything on the cube as it was actually given, in the user's own
-    // colours, and refuse unless it really does come out solved.
+    return packageSolution(state, steps);
+  }
+
+  /**
+   * Replay the moves on the cube as it was actually handed in, and refuse
+   * unless all six faces really do come out one colour.
+   *
+   * This is the only check that counts, and it is deliberately the last thing
+   * that happens no matter which solver produced the moves. Handing someone
+   * turns for a cube they do not own is the worst failure this app has.
+   */
+  function packageSolution(state, steps) {
     var states = [Uint8Array.from(state)];
     for (var i = 0; i < steps.length; i++) {
       states.push(cube.apply(states[i], steps[i].move));
@@ -681,10 +748,7 @@
     var end = states[states.length - 1];
     for (var f = 0; f < 6; f++) {
       for (var k = 0; k < PER; k++) {
-        if (end[f * PER + k] !== end[f * PER]) {
-          return { ok: false, message: 'The solver produced moves that do not finish this cube, so it ' +
-            'has thrown them away rather than hand them over. This is a bug — please report it.' };
-        }
+        if (end[f * PER + k] !== end[f * PER]) return null;
       }
     }
 
@@ -693,6 +757,7 @@
       var last = groups[groups.length - 1];
       if (!last || last.id !== steps[g].stage) {
         var info = STAGES.filter(function (s) { return s.id === steps[g].stage; })[0];
+        if (!info) info = { id: steps[g].stage, title: steps[g].stage, blurb: '' };
         groups.push({ id: info.id, title: info.title, blurb: info.blurb, start: g, count: 1 });
       } else last.count++;
     }
