@@ -59,6 +59,8 @@
     this.centers = [];
     this.busy = false;
     this.locked = null;
+    this.size = null;
+    this.shownSize = -1;
     this.el.capture.disabled = true;
     this.render();
     this.message('Starting the camera…');
@@ -141,10 +143,23 @@
     if (!this.busy && now - this.lastLive > LIVE_INTERVAL) {
       this.lastLive = now;
       var frame = this.grab(this.work, this.workCtx, PREVIEW_EDGE);
-      this.locked = frame ? CubeDetect.detectFace(frame) : null;
+      // Not told the size — it works it out, largest first
+      this.locked = frame ? CubeDetect.detectAny(frame) : null;
       this.drawOverlay(frame);
+      this.showSize();
     }
     this.raf = requestAnimationFrame(function () { self.loop(); });
+  };
+
+  /** Say what it can see right now, so the lock is obvious before pressing. */
+  Scanner.prototype.showSize = function () {
+    if (this.busy) return;
+    var size = this.locked ? this.locked.size : 0;
+    if (size === this.shownSize) return;
+    this.shownSize = size;
+    if (!size) { this.message(''); return; }
+    this.message(size + '×' + size + ' face found — ' + this.locked.points.length + ' stickers.',
+      false);
   };
 
   /** Where the video actually sits inside its box, given object-fit: contain. */
@@ -200,10 +215,28 @@
     var frame = this.grab(this.el.canvas, this.ctx, CAPTURE_EDGE);
     if (!frame) { this.message('The camera is not ready yet.', true); return; }
 
-    var found = CubeDetect.detectFace(frame);
+    var found = CubeDetect.detectAny(frame);
     if (!found || found.failed) {
       var why = CubeDetect.detectFace(frame, { debug: true });
       this.reportMiss(frame, why && why.debug);
+      return;
+    }
+
+    // Every face has to be the same size as the first one.
+    if (!this.size) this.size = found.size;
+    if (found.size !== this.size) {
+      this.message('That looks like a ' + found.size + '×' + found.size + ' face, but the first one was ' +
+        this.size + '×' + this.size + '. Same cube for all six, please.', true);
+      return;
+    }
+
+    if (this.size !== 3) {
+      // The grid finder handles 4x4 already; fitting six 4x4 faces into a cube
+      // and solving it does not exist yet, so say so rather than half-do it.
+      this.message('Found the whole ' + found.size + '×' + found.size + ' face — all ' +
+        found.points.length + ' stickers located. Reading and solving a ' + found.size + '×' +
+        found.size + ' is still being built, so nothing is saved yet. 3×3 works today.', true);
+      this.size = null;
       return;
     }
 

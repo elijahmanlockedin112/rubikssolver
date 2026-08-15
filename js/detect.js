@@ -167,14 +167,32 @@
    * same way, so the result can come out rotated but never mirrored — and a
    * rotation is something the assembly step already knows how to undo.
    */
-  function hypothesiseLattice(cells) {
+  /** For each blob, the handful of blobs nearest it. */
+  function nearestNeighbours(cells, k) {
+    return cells.map(function (a, i) {
+      var order = [];
+      for (var j = 0; j < cells.length; j++) {
+        if (i === j) continue;
+        order.push({ j: j, d: Math.hypot(cells[j].cx - a.cx, cells[j].cy - a.cy) });
+      }
+      order.sort(function (p, q) { return p.d - q.d; });
+      return order.slice(0, k).map(function (o) { return o.j; });
+    });
+  }
+
+  function hypothesiseLattice(cells, N) {
     var best = null;
+    var cellCount = N * N;
+    // Whichever blob sits next to another in the grid is one of its nearest
+    // neighbours, so there is no point pairing every blob with every other —
+    // which matters at 4x4, where that would be sixteen times the work.
+    var neighbours = nearestNeighbours(cells, 8);
 
     for (var i = 0; i < cells.length; i++) {
       var a = cells[i];
       var size = Math.sqrt(a.area);
-      for (var j = 0; j < cells.length; j++) {
-        if (i === j) continue;
+      for (var nb = 0; nb < neighbours[i].length; nb++) {
+        var j = neighbours[i][nb];
         var b = cells[j];
         if (b.area < a.area * 0.45 || b.area > a.area * 2.2) continue;
 
@@ -184,14 +202,14 @@
 
         var wx = -vy, wy = vx;                                 // a quarter turn, fixed handedness
 
-        for (var originCell = 0; originCell < 9; originCell++) {
-          var r0 = (originCell / 3) | 0, c0 = originCell % 3;
+        for (var originCell = 0; originCell < cellCount; originCell++) {
+          var r0 = (originCell / N) | 0, c0 = originCell % N;
           var ox = a.cx - c0 * vx - r0 * wx;
           var oy = a.cy - c0 * vy - r0 * wy;
 
           var matched = 0, error = 0, used = {};
-          for (var r = 0; r < 3; r++) {
-            for (var c = 0; c < 3; c++) {
+          for (var r = 0; r < N; r++) {
+            for (var c = 0; c < N; c++) {
               var px = ox + c * vx + r * wx;
               var py = oy + c * vy + r * wy;
               var bestK = -1, bestD = len * 0.38;
@@ -203,7 +221,9 @@
               if (bestK >= 0) { used[bestK] = true; matched++; error += bestD; }
             }
           }
-          if (matched < 6) continue;
+          // enough of the grid has to be there, with a little slack for a
+          // sticker lost to glare or a shadow
+          if (matched < Math.max(6, Math.ceil(cellCount * 0.7))) continue;
 
           // Prefer more matches, then a tighter fit, then the most upright
           // grid. Measured from "pointing right", NOT folded to the nearest
@@ -212,7 +232,7 @@
           var tilt = Math.abs(Math.atan2(vy, vx));
           var score = matched * 1000 - error - tilt * 60;
           if (!best || score > best.score) {
-            best = { ox: ox, oy: oy, vx: vx, vy: vy, wx: wx, wy: wy, matched: matched, score: score, step: len };
+            best = { ox: ox, oy: oy, vx: vx, vy: vy, wx: wx, wy: wy, matched: matched, score: score, step: len, N: N };
           }
         }
       }
@@ -225,10 +245,10 @@
    * vectors move independently. A cube face photographed at an angle is a
    * trapezoid; insisting on a square one costs matches around its far edge.
    */
-  function refine(lattice, cells) {
+  function refine(lattice, cells, N) {
     var points = [];
-    for (var r = 0; r < 3; r++) {
-      for (var c = 0; c < 3; c++) {
+    for (var r = 0; r < N; r++) {
+      for (var c = 0; c < N; c++) {
         var px = lattice.ox + c * lattice.vx + r * lattice.wx;
         var py = lattice.oy + c * lattice.vy + r * lattice.wy;
         var bestK = -1, bestD = lattice.step * 0.42;
@@ -239,7 +259,7 @@
         if (bestK >= 0) points.push({ row: r, col: c, x: cells[bestK].cx, y: cells[bestK].cy });
       }
     }
-    if (points.length < 6) return null;
+    if (points.length < Math.max(6, Math.ceil(N * N * 0.6))) return null;
     var fit = fitAffine(points);
     if (!fit) return null;
 
@@ -256,7 +276,7 @@
 
     return {
       ox: origin.x, oy: origin.y, vx: vx, vy: vy, wx: wx, wy: wy,
-      matched: points.length, step: (stepV + stepW) / 2
+      matched: points.length, step: (stepV + stepW) / 2, N: N
     };
   }
 
@@ -273,7 +293,7 @@
    * be an even colour. Carpet, wood grain, book spines and faces are all
    * textured; a cube face is not.
    */
-  function looksLikeACube(small, lattice, report) {
+  function looksLikeACube(small, lattice, report, N) {
     var w = small.width, h = small.height;
 
     function point(row, col) {
@@ -283,8 +303,8 @@
 
     var radius = Math.max(1, lattice.step * 0.2);
     var spreads = [];
-    for (var r = 0; r < 3; r++) {
-      for (var c = 0; c < 3; c++) {
+    for (var r = 0; r < N; r++) {
+      for (var c = 0; c < N; c++) {
         var p = point(r, c);
         if (p.x < 0 || p.y < 0 || p.x >= w || p.y >= h) return false;   // runs off the frame
 
@@ -496,7 +516,8 @@
    */
   function detectFace(img, opts) {
     opts = opts || {};
-    var debug = opts.debug ? { stage: 'start' } : null;
+    var N = opts.size || 3;
+    var debug = opts.debug ? { stage: 'start', size: N } : null;
     var small = downscale(img, opts.workSize || WORK_SIZE);
     var v = brightness(small);
     var grad = gradient(v, small.width, small.height);
@@ -515,40 +536,42 @@
     var blobs = findBlobs(mask, small.width, small.height);
     var candidates = plausibleStickers(blobs, small.width, small.height);
     if (debug) {
-      debug.size = small.width + 'x' + small.height;
+      debug.frame = small.width + 'x' + small.height;
       debug.brightnessCut = cut;
       debug.edgeCut = gradCut;
       debug.blobs = blobs.length;
       debug.candidates = candidates.length;
       debug.candidateAreas = candidates.map(function (c) { return Math.round(c.area); }).sort(function (a, b) { return b - a; }).slice(0, 12);
     }
-    if (candidates.length < 6) {
-      if (debug) { debug.stage = 'too few sticker-shaped patches'; return { failed: true, debug: debug }; }
+    var needed = Math.max(6, Math.ceil(N * N * 0.7));
+    if (candidates.length < needed) {
+      if (debug) { debug.stage = 'too few sticker-shaped patches (needs ' + needed + ')'; return { failed: true, debug: debug }; }
       return null;
     }
 
     // keep the search cheap: the cells all look about the same size
-    if (candidates.length > 30) {
+    var keepAtMost = N * N * 2 + 8;
+    if (candidates.length > keepAtMost) {
       var sorted = candidates.map(function (c) { return c.area; }).sort(function (a, b) { return a - b; });
       var med = sorted[sorted.length >> 1];
       candidates = candidates.slice().sort(function (a, b) {
         return Math.abs(a.area - med) - Math.abs(b.area - med);
-      }).slice(0, 30);
+      }).slice(0, keepAtMost);
     }
 
-    var lattice = hypothesiseLattice(candidates);
+    var lattice = hypothesiseLattice(candidates, N);
     if (debug) debug.lattice = lattice ? { matched: lattice.matched, step: Math.round(lattice.step) } : null;
     if (!lattice) {
-      if (debug) { debug.stage = 'no 3x3 grid among those patches'; return { failed: true, debug: debug }; }
+      if (debug) { debug.stage = 'no ' + N + 'x' + N + ' grid among those patches'; return { failed: true, debug: debug }; }
       return null;
     }
 
     // A face seen at an angle is a trapezoid, not a square. The hypothesis
     // above is deliberately rigid so it can be found at all; relax it to a
     // full affine fit of whatever it matched, which absorbs the perspective.
-    lattice = refine(lattice, candidates) || lattice;
+    lattice = refine(lattice, candidates, N) || lattice;
 
-    var verified = looksLikeACube(small, lattice, debug);
+    var verified = looksLikeACube(small, lattice, debug, N);
     if (debug) debug.flatCheck = verified;
     if (!verified) {
       if (debug) { debug.stage = 'grid found but the patches are too textured to be cube faces'; return { failed: true, debug: debug }; }
@@ -558,8 +581,8 @@
 
     var inv = 1 / small.scale;
     var points = [];
-    for (var r = 0; r < 3; r++) {
-      for (var c = 0; c < 3; c++) {
+    for (var r = 0; r < N; r++) {
+      for (var c = 0; c < N; c++) {
         points.push({
           x: (lattice.ox + c * lattice.vx + r * lattice.wx) * inv,
           y: (lattice.oy + c * lattice.vy + r * lattice.wy) * inv
@@ -569,7 +592,8 @@
     var radius = Math.max(2, lattice.step * inv * 0.17);
     var samples = points.map(function (p) { return sampleAt(img, p.x, p.y, radius); });
 
-    var corners = [[-0.62, -0.62], [-0.62, 2.62], [2.62, 2.62], [2.62, -0.62]].map(function (rc) {
+    var lo = -0.62, hi = N - 1 + 0.62;
+    var corners = [[lo, lo], [lo, hi], [hi, hi], [hi, lo]].map(function (rc) {
       return {
         x: (lattice.ox + rc[1] * lattice.vx + rc[0] * lattice.wx) * inv,
         y: (lattice.oy + rc[1] * lattice.vy + rc[0] * lattice.wy) * inv
@@ -577,7 +601,7 @@
     });
 
     return {
-      samples: samples, points: points, quad: corners,
+      samples: samples, points: points, quad: corners, size: N,
       found: lattice.matched, step: lattice.step * inv,
       debug: debug
     };
@@ -622,8 +646,28 @@
     return { width: small.width, height: small.height, rgb: rgb };
   }
 
+  /**
+   * Find a face without being told the cube's size.
+   *
+   * Bigger first, and the first hit wins. That order is not arbitrary: a 3x3
+   * grid fits inside a 4x4 (any three-by-three block of it), so a 4x4 asked for
+   * a 3x3 will happily say yes. The reverse cannot happen — there is no 4x4
+   * lattice hiding in a 3x3 — and measurement agrees: 0 of 60 3x3 photos were
+   * read as a 4x4, while all 60 4x4 photos were readable as a 3x3.
+   */
+  function detectAny(img, opts) {
+    opts = opts || {};
+    var sizes = opts.sizes || [4, 3];
+    for (var i = 0; i < sizes.length; i++) {
+      var found = detectFace(img, { size: sizes[i], workSize: opts.workSize, debug: opts.debug });
+      if (found && !found.failed) return found;
+    }
+    return null;
+  }
+
   var api = {
     detectFace: detectFace,
+    detectAny: detectAny,
     debugMask: typeof Buffer === 'undefined' ? null : debugMask,
     _internals: {
       downscale: downscale, otsu: otsu, findBlobs: findBlobs,

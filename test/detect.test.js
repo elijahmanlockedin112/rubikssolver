@@ -33,6 +33,7 @@ var BASE = [
  * background rgb, shade (light falloff), noise, gap (fraction of a cell).
  */
 function renderFace(cells, opts) {
+  var N = opts.N || 3;
   var W = opts.width || 480, H = opts.height || 360;
   var data = new Uint8ClampedArray(W * H * 4);
   var cos = Math.cos(-opts.angle), sin = Math.sin(-opts.angle);
@@ -42,14 +43,14 @@ function renderFace(cells, opts) {
   for (var y = 0; y < H; y++) {
     for (var x = 0; x < W; x++) {
       var dx = (x - opts.cx) / opts.scale, dy = (y - opts.cy) / opts.scale;
-      var u = dx * cos - dy * sin + 1.5;
-      var v = dx * sin + dy * cos + 1.5;
+      var u = dx * cos - dy * sin + N / 2;
+      var v = dx * sin + dy * cos + N / 2;
       var rgb;
-      if (u >= 0 && u < 3 && v >= 0 && v < 3) {
+      if (u >= 0 && u < N && v >= 0 && v < N) {
         var col = Math.floor(u), row = Math.floor(v);
         var fu = u - col, fv = v - row;
         var onPlastic = fu < gap || fu > 1 - gap || fv < gap || fv > 1 - gap;
-        rgb = onPlastic ? plastic : BASE[cells[row * 3 + col]];
+        rgb = onPlastic ? plastic : BASE[cells[row * N + col]];
       } else {
         rgb = opts.background || [120, 120, 125];
       }
@@ -62,13 +63,14 @@ function renderFace(cells, opts) {
   return { data: data, width: W, height: H };
 }
 
-/** Where the nine sticker centres really ended up, in image pixels. */
+/** Where the sticker centres really ended up, in image pixels. */
 function trueCenters(opts) {
+  var N = opts.N || 3;
   var ca = Math.cos(opts.angle), sa = Math.sin(opts.angle);
   var out = [];
-  for (var row = 0; row < 3; row++) {
-    for (var col = 0; col < 3; col++) {
-      var du = col + 0.5 - 1.5, dv = row + 0.5 - 1.5;
+  for (var row = 0; row < N; row++) {
+    for (var col = 0; col < N; col++) {
+      var du = col + 0.5 - N / 2, dv = row + 0.5 - N / 2;
       var dx = du * ca - dv * sa, dy = du * sa + dv * ca;
       out.push({ x: opts.cx + dx * opts.scale, y: opts.cy + dy * opts.scale });
     }
@@ -76,9 +78,9 @@ function trueCenters(opts) {
   return out;
 }
 
-function randomCells() {
+function randomCells(N) {
   var cells = [];
-  for (var i = 0; i < 9; i++) cells.push(Math.floor(Math.random() * 6));
+  for (var i = 0; i < (N || 3) * (N || 3); i++) cells.push(Math.floor(Math.random() * 6));
   return cells;
 }
 function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
@@ -86,8 +88,9 @@ function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
 /** Did it find the real grid, in the right order? */
 function gridError(opts, found) {
   var truth = trueCenters(opts);
+  if (found.points.length !== truth.length) return Infinity;
   var worst = 0;
-  for (var i = 0; i < 9; i++) {
+  for (var i = 0; i < truth.length; i++) {
     var d = Math.hypot(found.points[i].x - truth[i].x, found.points[i].y - truth[i].y);
     if (d > worst) worst = d;
   }
@@ -100,8 +103,9 @@ function sweep(label, make) {
   var good = 0, notFound = 0, wrongGrid = 0, worstErr = 0, slowest = 0;
   for (var t = 0; t < trials; t++) {
     var opts = make();
+    var N = opts.N || 3;
     var started = Date.now();
-    var found = D.detectFace(renderFace(randomCells(), opts));
+    var found = D.detectFace(renderFace(randomCells(N), opts), { size: N });
     var ms = Date.now() - started;
     if (ms > slowest) slowest = ms;
     if (!found) { notFound++; continue; }
@@ -136,6 +140,58 @@ var messy = sweep('busy room   ', function () {
   };
 });
 check('a random background does not throw it off', messy >= 0.98, (messy * 100).toFixed(0) + '%');
+
+console.log('\nlocating a 4x4 grid');
+
+check('a square-on 4x4 is always found', sweep('square on   ', function () {
+  return { N: 4, angle: 0, scale: rand(34, 70), cx: 240, cy: 180, shade: 0.15, noise: 8 };
+}) === 1);
+
+check('a tilted 4x4 is always found', sweep('tilted      ', function () {
+  return { N: 4, angle: rand(-0.3, 0.3), scale: rand(34, 70), cx: 240, cy: 180, shade: 0.2, noise: 10 };
+}) === 1);
+
+check('an off-centre 4x4 at any size is always found', sweep('off-centre  ', function () {
+  return { N: 4, angle: rand(-0.25, 0.25), scale: rand(30, 60), cx: rand(170, 310), cy: rand(120, 240), shade: 0.25, noise: 12 };
+}) === 1);
+
+var messy4 = sweep('busy room   ', function () {
+  return {
+    N: 4, angle: rand(-0.3, 0.3), scale: rand(30, 62), cx: rand(170, 310), cy: rand(120, 240),
+    shade: 0.35, noise: 18, background: [rand(30, 220), rand(30, 220), rand(30, 220)]
+  };
+});
+check('a 4x4 survives a random background', messy4 >= 0.98, (messy4 * 100).toFixed(0) + '%');
+
+console.log('\nworking out the size without being told');
+// Bigger-first is the whole basis of auto-detection, and it rests on this
+// asymmetry: a 3x3 grid fits inside a 4x4, but a 4x4 cannot hide in a 3x3.
+check('a 3x3 photo is never read as a 4x4', (function () {
+  for (var t = 0; t < 40; t++) {
+    var opts = { angle: rand(-0.2, 0.2), scale: rand(45, 90), cx: 240, cy: 180, shade: 0.2, noise: 10 };
+    var asFour = D.detectFace(renderFace(randomCells(3), opts), { size: 4 });
+    if (asFour && !asFour.failed) return false;
+  }
+  return true;
+})());
+
+check('auto-detect calls a 4x4 a 4x4', (function () {
+  for (var t = 0; t < 40; t++) {
+    var opts = { N: 4, angle: rand(-0.25, 0.25), scale: rand(34, 66), cx: rand(200, 280), cy: rand(140, 220), shade: 0.2, noise: 10 };
+    var found = D.detectAny(renderFace(randomCells(4), opts));
+    if (!found || found.size !== 4 || gridError(opts, found) > 0.3) return false;
+  }
+  return true;
+})());
+
+check('auto-detect calls a 3x3 a 3x3', (function () {
+  for (var t = 0; t < 40; t++) {
+    var opts = { angle: rand(-0.25, 0.25), scale: rand(45, 90), cx: rand(200, 280), cy: rand(140, 220), shade: 0.2, noise: 10 };
+    var found = D.detectAny(renderFace(randomCells(3), opts));
+    if (!found || found.size !== 3 || gridError(opts, found) > 0.3) return false;
+  }
+  return true;
+})());
 
 console.log('\nrefusing what is not a cube');
 check('an empty frame is refused', (function () {
