@@ -1,5 +1,5 @@
 ﻿/*
- * assemble.js â€” turn six loose photos of faces into one cube.
+ * assemble.js — turn six loose photos of faces into one cube.
  *
  * The user should not have to hold the cube a particular way, or photograph the
  * faces in a particular order. They don't have to, because the cube itself
@@ -10,7 +10,7 @@
  *   - Which way up was each photo? Try all four rotations of all six faces and
  *     keep the combination that assembles into a physically possible cube.
  *     4^6 is only 4096 combinations, and validity is an extremely tight filter
- *     â€” every one of the twelve edges and eight corners has to be a real piece,
+ *     — every one of the twelve edges and eight corners has to be a real piece,
  *     appearing exactly once, with the corner twists and edge flips adding up.
  *     In practice exactly one combination survives.
  *
@@ -19,10 +19,13 @@
  * assembles into a real cube wins.
  */
 ;(function (root, factory) {
-  var api = factory(typeof require === 'function' ? require('./cube.js') : root.Cube);
+  var api = factory(
+    typeof require === 'function' ? require('./cube.js') : root.Cube,
+    typeof require === 'function' ? require('./cuben.js') : root.CubeN
+  );
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.CubeAssemble = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Cube) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Cube, CubeN) {
   'use strict';
 
   // Palette order: white yellow green blue red orange
@@ -42,7 +45,7 @@
    * sRGB to CIELAB. Worth the arithmetic: in Lab, "how different do these two
    * colours look" is roughly a straight-line distance, which hue-and-saturation
    * badly misrepresents. Measured on real photos of a cube, hue put red and
-   * orange only 1.06x apart relative to their own spread â€” touching â€” and
+   * orange only 1.06x apart relative to their own spread — touching — and
    * actually overlapped yellow with green. In Lab the same photos separate
    * cleanly.
    */
@@ -120,7 +123,7 @@
    * any two stickers that would both be happier with each other's colour and
    * swaps them, repeatedly. Swapping keeps the nine-per-colour count intact, and
    * for a sticker to stay wrong now, a second one has to be wrong in the
-   * opposite direction at the same time â€” far harder than being wrong alone.
+   * opposite direction at the same time — far harder than being wrong alone.
    */
   function assignByQuota(cost, fixed, perColor) {
     var count = cost.length;
@@ -254,7 +257,7 @@
      *
      * A centre is only one sample, and if it happens to catch a highlight or a
      * shadow every comparison inherits that. Averaging the whole group is a far
-     * steadier target â€” and it is free, because the nine-per-colour rule means
+     * steadier target — and it is free, because the nine-per-colour rule means
      * the groups are always the right size. The centres stay pinned to their
      * own colour throughout, so the labels cannot drift.
      */
@@ -323,7 +326,7 @@
    * white/yellow, green/blue, red/orange scheme first.
    *
    * Note there is no shortcut here based on which colours appear on which face.
-   * It is tempting to say "a face never shows its own opposite colour" â€” true
+   * It is tempting to say "a face never shows its own opposite colour" — true
    * of a solved cube, false of a scrambled one, where a yellow piece can sit in
    * a slot on the white face and show yellow upwards. Guessing that way throws
    * the right answer out. The pairing is settled by which one assembles into a
@@ -339,7 +342,7 @@
   /**
    * Two colour-to-panel layouts per pairing, and that is genuinely all that is
    * needed. There are 48 ways to lay three pairs onto three axes, but the 24
-   * rotations of a cube shuffle them into just two families â€” the cube and its
+   * rotations of a cube shuffle them into just two families — the cube and its
    * mirror image. Every other layout is one of these two seen from a different
    * angle, and since the photo rotations are searched anyway, a rotated layout
    * would only rediscover the same cube.
@@ -386,7 +389,7 @@
     // look like two different colours.
     //
     // The threshold is deliberately tight. Two shots of one face are near
-    // identical â€” it is the same physical sticker seconds apart â€” while the
+    // identical — it is the same physical sticker seconds apart — while the
     // closest two different centres measured on a real cube (red and orange)
     // sit 13 apart. Anything looser starts calling a red face a repeat of an
     // orange one, which is a far worse failure than missing a genuine repeat:
@@ -474,8 +477,8 @@
       if (solutions.length) {
         // Occasionally the photos fit together in more than one way that is a
         // real cube. Nothing in the images can break that tie, so prefer the
-        // reading that assumes the cube was held the same way up throughout â€”
-        // that is what people actually do â€” and tell the caller it was close.
+        // reading that assumes the cube was held the same way up throughout —
+        // that is what people actually do — and tell the caller it was close.
         solutions.sort(function (p, q) { return p.cost - q.cost; });
         return {
           ok: true,
@@ -493,13 +496,52 @@
       colors: byCapture,
       checked: checked,
       message: 'Those six photos do not fit together into a real cube. Usually that means a ' +
-        'sticker was read as the wrong colour â€” check the map and fix any that look wrong.'
+        'sticker was read as the wrong colour — check the map and fix any that look wrong.'
     };
+  }
+
+  /**
+   * Turn the finished cube to match how the last photo was taken.
+   *
+   * A solution is a list of moves like "turn the right face", which only means
+   * something once the cube is being held a particular way. Left alone, the
+   * assembler settles on whatever orientation its search happened to land in,
+   * and the app has to open by naming a colour and asking someone to rotate the
+   * cube until it matches — before a single move makes sense.
+   *
+   * The last photo is a much better answer, because it is the face they were
+   * looking at a second ago and the cube is almost certainly still that way up.
+   * So the whole cube is turned until that face is at the front, the same way
+   * up as it was photographed, and the moves come out relative to how the cube
+   * is already being held.
+   *
+   * Which of the 24 turns to use is not worked out, it is looked up: apply each
+   * and keep the one whose front face comes out exactly equal to the photo. If
+   * none does — the assembler settled on a different reading, or a colour was
+   * named differently — nothing changes, which is no worse than before.
+   */
+  function orientToPhoto(state, photoCells, N) {
+    var per = N * N;
+    if (!state || !photoCells || photoCells.length !== per) return state;
+    var turns = CubeN.rotations(N);
+    for (var r = 0; r < turns.length; r++) {
+      var rot = turns[r];
+      var matches = true;
+      for (var i = 0; i < per && matches; i++) {
+        if (state[rot[2 * per + i]] !== photoCells[i]) matches = false;
+      }
+      if (!matches) continue;
+      var out = new Int8Array(state.length);
+      for (var j = 0; j < state.length; j++) out[j] = state[rot[j]];
+      return out;
+    }
+    return state;
   }
 
   return {
     assemble: assemble,
     assembleFromColors: assembleFromColors,
+    orientToPhoto: orientToPhoto,
     classifyCaptures: classifyCaptures,
     clusterStickers: clusterStickers,
     rotateFace: rotateFace,

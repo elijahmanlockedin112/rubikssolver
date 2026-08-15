@@ -105,8 +105,13 @@
   Scanner.prototype.render = function () {
     var done = this.samples.length;
     this.el.title.textContent = done >= 6 ? 'Reading the cube…' : 'Face ' + (done + 1) + ' of 6';
-    this.el.tip.textContent = 'Point a face at the camera and snap it. Any order, any way up — ' +
-      'turn the cube however you like between shots.';
+    // The last shot decides which way the finished cube is held, so it is worth
+    // saying before they take it rather than after.
+    this.el.tip.textContent = done === 5
+      ? 'Last one. However you hold the cube for this shot is how you should keep holding it — ' +
+        'the moves will be written for this exact view, so there is nothing to line up afterwards.'
+      : 'Point a face at the camera and snap it. Any order, any way up — turn the cube however you ' +
+        'like between shots.';
     this.el.capture.textContent = 'Snap';
     this.el.undo.disabled = done === 0;
 
@@ -381,24 +386,36 @@
     this.el.undo.disabled = true;
     this.render();
 
-    if (this.size !== 3) {
-      // No centre sticker names a face here, so the colours are read by
-      // clustering and the arrangement is worked out from the cube's structure.
-      var per = this.size * this.size;
-      var read = CubeAssemble.clusterStickers(this.samples, this.size);
+    var size = this.size || 3;
+    var per = size * size;
+    // The colours of every photo, in the order they were taken. Needed twice:
+    // to assemble the cube, and to turn the finished cube to match the last
+    // shot so the moves suit how it is already being held.
+    var read = CubeAssemble.clusterStickers(this.samples, size);
+    var lastPhoto = Array.prototype.slice.call(read.subarray(5 * per, 6 * per));
+    var self = this;
+    function handOver(built, fallback) {
+      if (!built.ok) {
+        self.done({ colors: fallback, unsure: [], source: 'failed', note: built.message, size: size });
+        return;
+      }
+      self.done({
+        colors: CubeAssemble.orientToPhoto(built.colors, lastPhoto, size),
+        unsure: [], source: 'device', ambiguous: built.ambiguous, size: size
+      });
+    }
+
+    if (size !== 3) {
+      // No centre sticker names a face here, so the arrangement is worked out
+      // from the cube's own structure instead.
       var faces = [];
       for (var f = 0; f < 6; f++) faces.push(Array.prototype.slice.call(read.subarray(f * per, f * per + per)));
-      var built = CubeAssemble4.assemble(faces, this.size);
-      this.done(built.ok
-        ? { colors: built.colors, unsure: [], source: 'device', ambiguous: built.ambiguous, size: this.size }
-        : { colors: read, unsure: [], source: 'failed', note: built.message, size: this.size });
+      handOver(CubeAssemble4.assemble(faces, size), read);
       return;
     }
 
-    var built = CubeAssemble.assemble(this.samples);
-    this.done(built.ok
-      ? { colors: built.colors, unsure: [], source: 'device', ambiguous: built.ambiguous }
-      : { colors: built.colors || null, unsure: [], source: 'failed', note: built.message });
+    var built3 = CubeAssemble.assemble(this.samples);
+    handOver(built3, built3.colors || null);
   };
 
   /** Say what actually went wrong, rather than one catch-all sentence. */

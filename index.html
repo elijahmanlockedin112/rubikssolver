@@ -18,8 +18,8 @@
     </div>
   </div>
   <nav class="steps-nav">
-    <span class="dev-badge" title="This is the 4x4 branch, served over Tailscale. The published app at github.io is the stable 3x3 one.">
-      ⚠ in progress · 4×4 branch
+    <span class="dev-badge" title="This is the working branch, served over Tailscale. The published app at github.io is the stable 3x3 one.">
+      ⚠ in progress · 2×2, 3×3 and 4×4
     </span>
     <span class="crumb is-active" data-crumb="setup">1 · Enter colors</span>
     <span class="crumb" data-crumb="solve">2 · Follow the moves</span>
@@ -31,8 +31,8 @@
   <section class="panel panel-input">
     <h2>Paint your cube</h2>
     <p class="hint">
-      Hold your cube with the <b id="hold-top">white</b> center on top and the
-      <b id="hold-front">green</b> center facing you. Fill in every sticker to match.
+      <span id="hold-note">Hold your cube with the white centre on top and the green centre facing
+      you, then fill in every sticker to match.</span>
       You can click stickers on the flat map <em>or</em> on the 3D cube.
     </p>
 
@@ -59,7 +59,7 @@
       <span>Let me change the center colors (only if your cube uses a different scheme)</span>
     </label>
 
-    <fieldset class="modes">
+    <fieldset class="modes" id="modes">
       <legend>Which solution do you want?</legend>
       <label class="mode is-active">
         <input type="radio" name="mode" value="fast" checked>
@@ -101,7 +101,7 @@
   <section class="panel panel-stage">
     <p id="repair-note" class="repair-note" hidden></p>
     <div class="orientation-note">
-      Keep <b id="solve-top">white</b> on top and <b id="solve-front">green</b> facing you for every move.
+      <span id="orientation-note-text">Keep white on top and green facing you for every move.</span>
     </div>
 
     <div class="stage-canvases">
@@ -183,8 +183,11 @@
 </div>
 
 <footer class="footer">
-  Two solvers under the hood: Kociemba's two-phase search for the short answer,
-  and the layer-by-layer beginner method for the one you can learn.
+  Four solvers under the hood. 3×3: Kociemba's two-phase search for the short
+  answer, or the layer-by-layer beginner method for the one you can learn.
+  2×2: every position solved from a full distance table, so the answer is always
+  the shortest that exists. 4×4: a three-phase reduction search, ported from
+  Shuang Chen's TPR solver under its MIT licence.
 </footer>
 
 <script src="js/cube.js"></script>

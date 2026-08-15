@@ -34,6 +34,9 @@
   var painting = false;
   var unsure = {};   // facelets worth a second look before solving
   var repairNote = null;   // what an automatic correction changed, if anything
+  // True when the cube on screen has been turned to match the last photo, so
+  // the moves already suit how it is being held and there is nothing to line up.
+  var orientedFromScan = false;
 
   var result = null;      // solver output
   var colorStates = [];   // display state after each move
@@ -160,6 +163,7 @@
   function paint(idx) {
     if (isCenter(idx) && !$('edit-centers').checked) return;
     colorState[idx] = selectedColor;
+    orientedFromScan = false;   // edited by hand, so no longer "just as photographed"
     delete unsure[idx];   // the user has now had their say on this one
     refreshNet();
     refreshViews();
@@ -184,6 +188,7 @@
     size = next;
     colorState = solvedColorState();
     unsure = {};
+    orientedFromScan = false;
     repairNote = null;
     result = null;
     [previewFront, previewBack, solveFront, solveBack].forEach(function (v) { v.setSize(size); });
@@ -194,29 +199,58 @@
     document.querySelectorAll('.size-option').forEach(function (b) {
       b.classList.toggle('is-active', +b.dataset.size === size);
     });
-    $('size-note').textContent = size === 3 ? 'Scanning and solving both work.'
-      : size === 2 ? '2×2: the solution is always the shortest one there is. With only corners to ' +
-        'go on, a scan sometimes fits together more than one way — it will say so, and the map is there to check.'
-      : '4×4: scanning, the map and solving all work.';
+    /*
+     * The two solution styles are a 3x3 thing. A 2x2 is small enough that the
+     * shortest answer is the only sensible one, and a 4x4 is big enough that
+     * reduction is the only practical method — so on those the choice is not a
+     * choice, and leaving it up said "About 20 moves" on a cube that takes 55.
+     */
+    $('modes').hidden = size !== 3;
+    $('size-note').textContent = size === 3
+      ? 'Scan or type it in. Two solution styles: short, or one you could learn.'
+      : size === 2
+        ? 'Always the shortest solution that exists — never more than 11 moves.'
+        : 'About 45 turns, found by search. Scanning, the map and solving all work.';
     showView('setup');
     setMessage('');
     save();
   }
 
+  /**
+   * Say how to hold the cube, in whatever terms actually apply.
+   *
+   * Three different situations, and the old wording only covered one:
+   *
+   *   - Just scanned. The cube has been turned to match the last photo, so it
+   *     is already being held right and there is nothing to look for. Say that,
+   *     because hunting for a colour to line up was the most tedious part of
+   *     using this.
+   *   - Typed in, 3x3. The centres name the faces, so name them.
+   *   - Typed in, 2x2 or 4x4. Nothing names a face — the middle pieces move —
+   *     so the map is the only reference there is, and it says so.
+   */
   function updateHoldLabels() {
+    var setup = $('hold-note'), solving = $('orientation-note-text');
+    if (orientedFromScan) {
+      var text = 'Hold the cube exactly as you did for your last photo — that face is the ' +
+        'one facing you here. Nothing to line up.';
+      setup.textContent = text;
+      solving.textContent = text;
+      return;
+    }
     if (size !== 3) {
-      // no fixed centres to name, so there is no "hold it like this"
-      $('hold-top').textContent = 'a';
-      $('hold-front').textContent = 'any';
+      var mapText = 'A ' + size + '×' + size + ' has no fixed centre to go by, so the map is the ' +
+        'reference: hold the cube so it matches the Front panel, with Up on top.';
+      setup.textContent = mapText;
+      solving.textContent = mapText;
       return;
     }
     var top = colorState[Cube.CENTERS[0]], front = colorState[Cube.CENTERS[2]];
     var topName = top < 0 ? 'the top' : COLOR_NAMES[top];
     var frontName = front < 0 ? 'the front' : COLOR_NAMES[front];
-    $('hold-top').textContent = topName;
-    $('hold-front').textContent = frontName;
-    $('solve-top').textContent = topName;
-    $('solve-front').textContent = frontName;
+    setup.textContent = 'Hold your cube with the ' + topName + ' centre on top and the ' +
+      frontName + ' centre facing you, then fill in every sticker to match.';
+    solving.textContent = 'Keep ' + topName + ' on top and ' + frontName + ' facing you for every move.';
   }
 
   // ---- persistence -------------------------------------------------------
@@ -447,18 +481,33 @@
     }
     repairNote = null;
     setMessage(working);
+
+    /*
+     * Both of these build lookup tables the first time they run — a fraction of
+     * a second for a 2x2, most of a second for a 4x4 — and they do it on the
+     * page's own thread, so the whole app stops dead with nothing on screen to
+     * say why. The 3x3 fast solver already had a panel for exactly this; these
+     * two now use it as well, and the timeout is what gives the browser a
+     * chance to actually paint it before the work begins.
+     */
+    $('prep').hidden = false;
+    $('prep-label').textContent = working;
+    $('prep-fill').style.width = '35%';
     setTimeout(function () {
       var out;
       try {
         out = solver.solve(colorState);
       } catch (err) {
+        $('prep').hidden = true;
         setMessage('Something went wrong solving that cube: ' + err.message, 'error');
         return;
       }
+      $('prep-fill').style.width = '100%';
+      $('prep').hidden = true;
       if (!out.ok) { setMessage(out.message, 'error'); return; }
       setMessage('');
       finishSolve(out);
-    }, 20);
+    }, 30);
   }
 
   function finishSolve(solution) {
@@ -692,21 +741,20 @@
           if (result.colors) colorState.set(result.colors);
           unsure = {};
           (result.unsure || []).forEach(function (i) { unsure[i] = true; });
+          // A reading that came out whole has been turned to match the last
+          // photo, so the cube in the user's hands is already the right way up.
+          orientedFromScan = result.source === 'device';
           refreshNet(); refreshViews(); updateHoldLabels(); save();
 
-          if (result.source === 'device-unordered') {
-            setMessage('Read all ' + result.colors.length + ' stickers of your ' + size + '×' + size +
-              '. Colours are right, but which photo is which face is still guesswork on a ' + size +
-              '×' + size + ' — it has no fixed centre to go by — so the faces are laid out in the ' +
-              'order you shot them. Working that out properly is the next piece.', 'error');
-          } else if (result.source === 'failed') {
+          if (result.source === 'failed') {
             setMessage(result.note || 'Those photos did not add up to a real cube. Fix the wrong ' +
               'stickers on the map, or scan again.', 'error');
           } else if (result.ambiguous) {
-            setMessage('Scanned. Those photos could be fitted together in more than one way, so ' +
-              'give the map a proper look before solving.', 'error');
+            setMessage('Scanned, but those photos fit together in more than one way — with no fixed ' +
+              'centre to go by, that can happen. Check the map against your cube before solving.', 'error');
           } else {
-            setMessage('Scanned. It fits together as a real cube — glance over the map, then solve.', 'ok');
+            setMessage('Scanned, and it fits together as a real cube. Keep holding it exactly as you ' +
+              'did for the last photo — the moves are written for that.', 'ok');
           }
           if (result.note) console.info('scan note:', result.note);
         }

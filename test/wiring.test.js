@@ -88,7 +88,9 @@ console.log('\nthe scanner hands its result back');
 // The specific shape of the bug above: finish() is the only route out of the
 // scanner, and it must reach something that closes the modal and calls onDone.
 var scan = fs.readFileSync(path.join(jsDir, 'scan.js'), 'utf8');
-check('finish() hands off to done()', /this\.done\(/.test(scan));
+// `this` inside finish(), or `self` from a helper closed over it — either way,
+// the only route out of the scanner has to reach done().
+check('finish() hands off to done()', /\b(this|self)\.done\(/.test(scan));
 check('done() is defined', /Scanner\.prototype\.done\s*=/.test(scan));
 check('done() closes the scanner', /Scanner\.prototype\.done[\s\S]{0,400}?this\.close\(/.test(scan));
 check('done() calls the page back', /Scanner\.prototype\.done[\s\S]{0,400}?opts\.onDone/.test(scan));

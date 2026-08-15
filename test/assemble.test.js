@@ -222,5 +222,58 @@ check('a misread sticker is reported rather than guessed at', (function () {
   return !out.ok && /do not fit together/.test(out.message);
 })());
 
+console.log('\nturning the cube to match the last photo');
+
+/*
+ * A solution only means something once the cube is held a particular way, and
+ * the assembler settles on whatever orientation its search happened to land in.
+ * Rather than opening with "find the white centre and rotate until it is on
+ * top", the finished cube is turned so the face photographed last sits at the
+ * front, the same way up as it was shot — so the moves suit how the cube is
+ * already being held and there is nothing to line up.
+ */
+(function () {
+  var CubeN = require('../js/cuben.js');
+  [2, 3, 4].forEach(function (N) {
+    var cube = CubeN.of(N), per = N * N;
+    var turns = CubeN.rotations(N);
+    var landed = 0, stillSameCube = 0, tries = 40;
+    for (var t = 0; t < tries; t++) {
+      var state = cube.applySeq(cube.SOLVED, cube.randomScramble(25));
+      // pretend the last photo was taken of some face, from some angle
+      var rot = turns[Math.floor(Math.random() * turns.length)];
+      var asShot = new Int8Array(6 * per);
+      for (var i = 0; i < 6 * per; i++) asShot[i] = state[rot[i]];
+      var photo = Array.prototype.slice.call(asShot.subarray(2 * per, 3 * per));
+
+      var turned = A.orientToPhoto(state, photo, N);
+      var front = Array.prototype.slice.call(turned.subarray(2 * per, 3 * per));
+      if (front.join() === photo.join()) landed++;
+
+      // and it must still be the same cube, only turned — never a different one
+      var isRotation = false;
+      for (var r = 0; r < turns.length && !isRotation; r++) {
+        var same = true;
+        for (var j = 0; j < 6 * per && same; j++) if (state[turns[r][j]] !== turned[j]) same = false;
+        if (same) isRotation = true;
+      }
+      if (isRotation) stillSameCube++;
+    }
+    check(N + 'x' + N + ': the last photo ends up at the front, the way it was shot',
+      landed === tries, landed + '/' + tries);
+    check(N + 'x' + N + ': turning it never changes which cube it is',
+      stillSameCube === tries, stillSameCube + '/' + tries);
+  });
+
+  // Nothing to match against should leave the cube exactly as it was, rather
+  // than throwing part-way through a scan that has otherwise gone fine.
+  var cube3 = CubeN.of(3);
+  var start = cube3.applySeq(cube3.SOLVED, cube3.randomScramble(20));
+  check('a photo that matches nothing leaves the cube alone',
+    A.orientToPhoto(start, new Array(9).fill(0), 3) === start);
+  check('a photo of the wrong size leaves the cube alone',
+    A.orientToPhoto(start, [1, 2, 3], 3) === start);
+})();
+
 console.log('\n' + (failures ? failures + ' FAILURE(S)' : 'all checks passed') + '\n');
 process.exit(failures ? 1 : 0);
