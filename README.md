@@ -164,4 +164,6 @@ node test/solver.test.js 1000
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+**All rights reserved.** The code is public to read, not to reuse — no copying,
+modifying, redistributing or building on it without written permission. See
+[LICENSE](LICENSE).

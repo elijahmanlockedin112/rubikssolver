@@ -432,7 +432,9 @@
     orderedPairings: orderedPairings,
     allPairings: allPairings,
     candidateAssignments: candidateAssignments,
-    colorCost: colorCost
+    colorCost: colorCost,
+    colorPoint: colorPoint
   };
 });
+
 
