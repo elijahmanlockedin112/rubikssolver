@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- viewport-fit=cover lets the background run under the notch and the home
+     indicator. It also makes env(safe-area-inset-*) report real numbers instead
+     of zero, which is what every inset in styles.css depends on. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Rubik's Cube Coach</title>
 <meta name="description" content="Enter your cube's colors and get a step-by-step 3D solution — no notation to learn.">
 <link rel="stylesheet" href="css/styles.css">
@@ -155,21 +158,28 @@
   <div class="modal-card">
     <h2 id="scan-title">Face 1 of 6 — Front</h2>
     <p id="scan-tip" class="hint"></p>
-    <div class="scan-stage">
-      <video id="scan-video" playsinline muted autoplay></video>
-      <canvas id="scan-overlay" class="scan-overlay" aria-hidden="true"></canvas>
+    <!-- One row in portrait, two columns when the phone is turned sideways: a
+         375px-tall landscape viewport cannot stack a camera preview above the
+         Snap button and still show both. See the landscape block in styles.css. -->
+    <div class="scan-layout">
+      <div class="scan-stage">
+        <video id="scan-video" playsinline muted autoplay></video>
+        <canvas id="scan-overlay" class="scan-overlay" aria-hidden="true"></canvas>
+      </div>
+      <div class="scan-side">
+        <div id="scan-thumbs" class="scan-thumbs"></div>
+        <div class="row-buttons scan-buttons">
+          <button id="scan-capture" class="btn btn-primary btn-snap">Snap</button>
+          <button id="scan-undo" class="btn">Redo last</button>
+          <button id="scan-close" class="btn btn-ghost">Cancel</button>
+        </div>
+        <p id="scan-message" class="message"></p>
+        <p class="caption scan-caption">
+          A green outline means it has found the face. Angle, distance and which way
+          up all sort themselves out — it reads the cube on this device, instantly.
+        </p>
+      </div>
     </div>
-    <div id="scan-thumbs" class="scan-thumbs"></div>
-    <div class="row-buttons scan-buttons">
-      <button id="scan-capture" class="btn btn-primary btn-snap">Snap</button>
-      <button id="scan-undo" class="btn">Redo last</button>
-      <button id="scan-close" class="btn btn-ghost">Cancel</button>
-    </div>
-    <p id="scan-message" class="message"></p>
-    <p class="caption">
-      A green outline means it has found the face. Angle, distance and which way
-      up all sort themselves out — it reads the cube on this device, instantly.
-    </p>
     <canvas id="scan-canvas" hidden></canvas>
   </div>
 </div>

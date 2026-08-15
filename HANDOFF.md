@@ -253,10 +253,78 @@ symmetry tables or the two-bit packing are wrong, which a move list will not.
    actual frames; `test/realshots.test.js` replays them. Synthetic tests passed
    100% while the scanner did not work on a real cube even once.
 
+## On a phone
+
+This app is used almost entirely on a phone — that is what the Tailscale address
+is for — so phone layout is the primary surface, not a fallback. There are two
+halves to checking it, and they do not overlap.
+
+```bash
+npm run test:mobile       # Playwright, six emulated profiles, ~15s
+```
+
+Six projects: iPhone SE (375), iPhone 15 (393) and Pixel 7 (412), each portrait
+and landscape. The iPhones run on WebKit because that is the engine iOS Safari
+is built on; the Pixel runs on Chromium. Per profile it checks that nothing
+overflows sideways at 2x2, 3x3 or 4x4, that every control clears 44px, that the
+stickers clear 32px, that the scanner fits on screen with its buttons reachable,
+and that the header and the scanner clear simulated notch and home-indicator
+insets. `--project=iphone-se` narrows it to one.
+
+**It is deliberately not part of `npm test`.** The fourteen-file Node suite must
+keep running on a machine with no Playwright and no 300MB browser download, so
+`npm run test:mobile` goes through `tools/mobile-test.js`, which checks for both
+and prints the install command and exits 0 rather than failing. Playwright is a
+devDependency; the shipped app is still plain files with no build and no
+dependencies.
+
+To set it up on a fresh machine:
+
+```bash
+npm install --save-dev @playwright/test
+npx playwright install webkit chromium
+```
+
+**`test/MOBILE-CHECKLIST.md` is the other half**, and it is not optional. There
+is no camera, no notch, no touch and no Safari under emulation, so the whole
+scanning path — permission, the live green outline, six snaps assembling into a
+cube — has never actually run there. Nor has the thing this app is really about:
+that the solved cube is turned to match the **last** photo, so the moves suit
+how the cube is already being held. That is a claim about how it feels in the
+hand and only a person holding a cube can settle it.
+
+### What the phone work changed, measured on a 375px iPhone SE
+
+Stickers and overflow under WebKit, which is what the suite asserts; the
+control sizes and the landscape figures under Chromium at 812x375.
+
+| | before | after |
+| --- | --- | --- |
+| document overflow | 1px (the panel's min-content was 366px in a 355px column) | 0px |
+| 2x2 sticker | 37.3px | 78.3px |
+| 3x3 sticker | 24.3px | 51.7px |
+| 4x4 sticker | 17.1px | 37.6px |
+| 4x4 sticker, same phone on its side | 17.1px | 36.2px |
+| size buttons | 58x39 | 58x44 |
+| colour swatches | 40x44 | 44x44 |
+| speed slider | 110x16 | 110x44 |
+| notation summary | 329x20 | 329x44 |
+| solve view, landscape 812x375 | 1739px of scrolling, transport at y=951 | 786px, transport at y=315 |
+| scanner, landscape | card 553px tall in a 375px window, Snap at y=423 | card 320px, Snap at y=95 |
+
+The map no longer scrolls sideways on a phone, because on a phone it is no
+longer a cross: below 640px, and in landscape where the column is just as
+narrow, the six faces lay out two per row in the order the cross reads. The
+cross needs four face-columns side by side, which on a 4x4 is sixteen stickers
+across. There were `env(safe-area-inset-*)` in neither the CSS nor the HTML
+before this; there are now, and `index.html` asks for `viewport-fit=cover`,
+without which iOS reports them all as zero.
+
 ## Commands
 
 ```bash
 npm test                  # full suite
+npm run test:mobile       # phone layout, six emulated profiles (needs Playwright)
 node tools/serve.js       # local server on :8123, what Tailscale fronts
 node tools/diagnose.js    # replay scan frames the detector failed on
 ```
