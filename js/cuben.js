@@ -109,6 +109,50 @@
     return perm;
   }
 
+  /**
+   * Turning the whole cube in your hands: every layer at once. Nothing is
+   * solved or unsolved by it, but two readings of the same cube taken from
+   * different angles differ by exactly one of these, which is what makes
+   * "is this the same cube?" answerable.
+   */
+  function wholeRotation(N, axis, dir) {
+    var size = 6 * N * N;
+    var perm = new Int32Array(size);
+    for (var face = 0; face < 6; face++) {
+      for (var row = 0; row < N; row++) {
+        for (var col = 0; col < N; col++) {
+          var from = face * N * N + row * N + col;
+          var s = stickerPoint(N, face, row, col);
+          var to = stickerIndex(N, rotate(s.p, axis, dir), rotate(s.n, axis, dir));
+          if (to < 0) throw new Error('a sticker rotated off the cube — geometry is wrong');
+          perm[to] = from;
+        }
+      }
+    }
+    return perm;
+  }
+
+  /** All 24 ways of holding the cube. */
+  function rotations(N) {
+    var size = 6 * N * N;
+    var identity = new Int32Array(size);
+    for (var i = 0; i < size; i++) identity[i] = i;
+    var generators = [
+      wholeRotation(N, AXIS.x, 1), wholeRotation(N, AXIS.y, 1), wholeRotation(N, AXIS.z, 1)
+    ];
+    var found = [identity];
+    var seen = {};
+    seen[identity.join(',')] = true;
+    for (var q = 0; q < found.length && found.length < 24; q++) {
+      for (var g = 0; g < generators.length; g++) {
+        var next = composePerm(found[q], generators[g]);
+        var key = next.join(',');
+        if (!seen[key]) { seen[key] = true; found.push(next); }
+      }
+    }
+    return found;
+  }
+
   function composePerm(a, b) {          // apply a, then b
     var out = new Int32Array(a.length);
     for (var i = 0; i < a.length; i++) out[i] = a[b[i]];
@@ -192,6 +236,40 @@
   }
 
   /**
+   * Group the stickers into physical pieces.
+   *
+   * Two stickers belong to the same piece when they sit on the same little
+   * cube, so rather than listing that out per size, each sticker is stepped
+   * half a unit back along its own normal to find the cubie it is stuck to,
+   * and stickers landing on the same cubie are the same piece.
+   *
+   * Returns { corners, edges, centres } as arrays of facelet-index groups:
+   * three stickers to a corner, two to an edge, one to a centre.
+   */
+  function pieces(N) {
+    var groups = {};
+    for (var face = 0; face < 6; face++) {
+      for (var row = 0; row < N; row++) {
+        for (var col = 0; col < N; col++) {
+          var s = stickerPoint(N, face, row, col);
+          var key = [0, 1, 2].map(function (axis) {
+            return Math.round((s.p[axis] - s.n[axis] * 0.5) * 2);
+          }).join(',');
+          (groups[key] = groups[key] || []).push(face * N * N + row * N + col);
+        }
+      }
+    }
+    var out = { corners: [], edges: [], centres: [] };
+    Object.keys(groups).forEach(function (key) {
+      var g = groups[key];
+      if (g.length === 3) out.corners.push(g);
+      else if (g.length === 2) out.edges.push(g);
+      else if (g.length === 1) out.centres.push(g);
+    });
+    return out;
+  }
+
+  /**
    * Which layer a move turns, and which way. Anything that draws the cube asks
    * for this rather than working it out again, so a move can never animate one
    * layer while the model turns another.
@@ -220,6 +298,9 @@
     stickerIndex: stickerIndex,
     layerPermutation: layerPermutation,
     layerOf: layerOf,
+    pieces: pieces,
+    wholeRotation: wholeRotation,
+    rotations: rotations,
     moveGeometry: moveGeometry,
     AXIS: AXIS,
     FACE_LETTERS: FACE_LETTERS

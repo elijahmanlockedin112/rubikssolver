@@ -60,7 +60,8 @@
     this.busy = false;
     this.locked = null;
     this.size = null;
-    this.shownSize = -1;
+    this.sawInstead = 0;
+    this.shownSize = '';
     this.el.capture.disabled = true;
     this.render();
     this.message('Starting the camera…');
@@ -143,23 +144,51 @@
     if (!this.busy && now - this.lastLive > LIVE_INTERVAL) {
       this.lastLive = now;
       var frame = this.grab(this.work, this.workCtx, PREVIEW_EDGE);
-      // Not told the size — it works it out, largest first
-      this.locked = frame ? CubeDetect.detectAny(frame) : null;
+      this.locked = frame ? this.look(frame) : null;
       this.drawOverlay(frame);
       this.showSize();
     }
     this.raf = requestAnimationFrame(function () { self.loop(); });
   };
 
+  /**
+   * Look for a face.
+   *
+   * When a size has been chosen, look for that size and nothing else. A 3x3
+   * grid fits inside a 4x4 — any three-by-three block of it — so a 4x4 held up
+   * to a scanner willing to accept a 3x3 will happily be read as one, quietly
+   * throwing away half the cube. If the wanted size is not there, it has a look
+   * for the other sizes purely so it can say what it can actually see.
+   */
+  Scanner.prototype.look = function (frame) {
+    var wanted = this.size || this.opts.size;
+    if (!wanted) return CubeDetect.detectAny(frame);
+
+    var found = CubeDetect.detectFace(frame, { size: wanted });
+    if (found && !found.failed) { this.sawInstead = 0; return found; }
+
+    var other = CubeDetect.detectAny(frame, { sizes: [5, 4, 3].filter(function (n) { return n !== wanted; }) });
+    this.sawInstead = other ? other.size : 0;
+    return null;
+  };
+
   /** Say what it can see right now, so the lock is obvious before pressing. */
   Scanner.prototype.showSize = function () {
     if (this.busy) return;
     var size = this.locked ? this.locked.size : 0;
-    if (size === this.shownSize) return;
-    this.shownSize = size;
-    if (!size) { this.message(''); return; }
-    this.message(size + '×' + size + ' face found — ' + this.locked.points.length + ' stickers.',
-      false);
+    var key = size + ':' + (this.sawInstead || 0);
+    if (key === this.shownSize) return;
+    this.shownSize = key;
+
+    if (size) {
+      this.message(size + '×' + size + ' face found — ' + this.locked.points.length + ' stickers.', false);
+    } else if (this.sawInstead) {
+      var wanted = this.size || this.opts.size;
+      this.message('That looks like a ' + this.sawInstead + '×' + this.sawInstead + ' face, but you are ' +
+        'scanning a ' + wanted + '×' + wanted + '. Change the size above, or show me the right cube.', true);
+    } else {
+      this.message('');
+    }
   };
 
   /** Where the video actually sits inside its box, given object-fit: contain. */
@@ -215,20 +244,21 @@
     var frame = this.grab(this.el.canvas, this.ctx, CAPTURE_EDGE);
     if (!frame) { this.message('The camera is not ready yet.', true); return; }
 
-    var found = CubeDetect.detectAny(frame);
+    var found = this.look(frame);
     if (!found || found.failed) {
-      var why = CubeDetect.detectFace(frame, { debug: true });
+      var wanted = this.size || this.opts.size || 3;
+      if (this.sawInstead) {
+        this.message('That is a ' + this.sawInstead + '×' + this.sawInstead + ' face, and you are scanning ' +
+          'a ' + wanted + '×' + wanted + '. Change the size above, or show me the right cube.', true);
+        return;
+      }
+      var why = CubeDetect.detectFace(frame, { size: wanted, debug: true });
       this.reportMiss(frame, why && why.debug);
       return;
     }
 
     // Every face has to be the same size as the first one.
     if (!this.size) this.size = found.size;
-    if (found.size !== this.size) {
-      this.message('That looks like a ' + found.size + '×' + found.size + ' face, but the first one was ' +
-        this.size + '×' + this.size + '. Same cube for all six, please.', true);
-      return;
-    }
 
     // A 3x3 has a fixed centre sticker, so a repeated face can be spotted the
     // moment it is taken. A 4x4 has no such sticker, so there is nothing to
@@ -317,14 +347,16 @@
     this.render();
 
     if (this.size !== 3) {
-      // No fixed centres, so which photo is which face cannot be worked out the
-      // way a 3x3 does it. Until that is built, the faces are taken in the order
-      // they were shot — the colours are read properly, the arrangement is a
-      // guess, and the user is told exactly that.
+      // No centre sticker names a face here, so the colours are read by
+      // clustering and the arrangement is worked out from the cube's structure.
+      var per = this.size * this.size;
       var read = CubeAssemble.clusterStickers(this.samples, this.size);
-      this.done({
-        colors: read, unsure: [], source: 'device-unordered', size: this.size
-      });
+      var faces = [];
+      for (var f = 0; f < 6; f++) faces.push(Array.prototype.slice.call(read.subarray(f * per, f * per + per)));
+      var built = CubeAssemble4.assemble(faces, this.size);
+      this.done(built.ok
+        ? { colors: built.colors, unsure: [], source: 'device', ambiguous: built.ambiguous, size: this.size }
+        : { colors: read, unsure: [], source: 'failed', note: built.message, size: this.size });
       return;
     }
 

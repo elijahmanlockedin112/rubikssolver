@@ -1,0 +1,165 @@
+/*
+ * node test/assemble4.test.js [trials]
+ *
+ * Photograph a 4x4's six faces in a random order, each turned a random way up,
+ * and check the cube comes back exactly — with no fixed centre anywhere to
+ * help. The question this answers is whether the cube's own structure (eight
+ * real corners, twelve real edges twice over) pins the arrangement down, or
+ * whether several arrangements fit and it has to say so.
+ */
+var CubeN = require('../js/cuben.js');
+var A4 = require('../js/assemble4.js');
+
+var failures = 0;
+function check(name, cond, extra) {
+  if (cond) console.log('  ok   ' + name);
+  else { failures++; console.log('  FAIL ' + name + (extra ? ' — ' + extra : '')); }
+}
+
+var N = 4, per = N * N;
+var cube = CubeN.of(N);
+
+function randomCube() {
+  return cube.applySeq(cube.SOLVED, cube.randomScramble(40));
+}
+function shuffle(list) {
+  var out = list.slice();
+  for (var i = out.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = out[i]; out[i] = out[j]; out[j] = t;
+  }
+  return out;
+}
+
+/** Photograph a cube: random face order, random rotation each. */
+function photograph(state, opts) {
+  opts = opts || {};
+  var order = opts.order || shuffle([0, 1, 2, 3, 4, 5]);
+  var turns = opts.turns || order.map(function () { return Math.floor(Math.random() * 4); });
+  var captures = order.map(function (face, n) {
+    var cells = [];
+    for (var i = 0; i < per; i++) cells.push(state[face * per + i]);
+    return A4.rotateFace(cells, N, turns[n]);
+  });
+  return { captures: captures, order: order, turns: turns };
+}
+
+function same(a, b) {
+  for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/**
+ * Is this the same physical cube, allowing for it being held differently?
+ *
+ * The search deliberately pins the first photo to the top face, which fixes
+ * one of the 24 ways to hold a cube. So a correct answer comes back rotated —
+ * the same cube seen from another angle — and comparing raw arrays would call
+ * every correct answer wrong.
+ */
+var ROTATIONS = CubeN.rotations(N);
+function sameCube(a, b) {
+  return ROTATIONS.some(function (perm) {
+    for (var i = 0; i < b.length; i++) if (a[i] !== b[perm[i]]) return false;
+    return true;
+  });
+}
+
+console.log('\npiece structure comes out of the geometry');
+(function () {
+  var layout = CubeN.pieces(N);
+  check('eight corners of three stickers', layout.corners.length === 8 &&
+    layout.corners.every(function (g) { return g.length === 3; }));
+  check('twenty-four edge wings of two stickers', layout.edges.length === 24 &&
+    layout.edges.every(function (g) { return g.length === 2; }));
+  check('twenty-four single-sticker centres', layout.centres.length === 24);
+  check('every sticker belongs to exactly one piece', (function () {
+    var seen = new Set();
+    [].concat(layout.corners, layout.edges, layout.centres).forEach(function (g) {
+      g.forEach(function (f) { seen.add(f); });
+    });
+    return seen.size === 6 * per;
+  })());
+
+  var three = CubeN.pieces(3);
+  check('a 3x3 comes out as 8 corners, 12 edges, 6 centres',
+    three.corners.length === 8 && three.edges.length === 12 && three.centres.length === 6);
+})();
+
+console.log('\na solved cube must obviously fit together');
+check('the solved cube is accepted', (function () {
+  var layout = CubeN.pieces(N);
+  return !!A4.structureOf(cube.SOLVED, layout);
+})());
+
+console.log('\nfitting six photos back together');
+var trials = parseInt(process.argv[2], 10) || 40;
+(function () {
+  var exact = 0, flagged = 0, wrong = 0, refused = 0, worstChecked = 0, slowest = 0;
+  for (var t = 0; t < trials; t++) {
+    var truth = randomCube();
+    var shot = photograph(truth);
+    var started = Date.now();
+    var result = A4.assemble(shot.captures, N);
+    var ms = Date.now() - started;
+    if (ms > slowest) slowest = ms;
+    if (result.checked > worstChecked) worstChecked = result.checked;
+
+    if (!result.ok) { refused++; continue; }
+    if (sameCube(result.colors, truth)) exact++;
+    else if (result.ambiguous) flagged++;
+    else wrong++;
+  }
+  console.log('  ' + trials + ' cubes: ' + exact + ' exact, ' + flagged + ' ambiguous (flagged), ' +
+    wrong + ' silently wrong, ' + refused + ' refused' +
+    '  [worst ' + worstChecked + ' arrangements tried, ' + slowest + 'ms]');
+  check('no cube is ever silently wrong', wrong === 0, wrong + ' of ' + trials);
+  check('most cubes are pinned down exactly', exact >= trials * 0.8, exact + '/' + trials);
+})();
+
+console.log('\norder and rotation really are free');
+check('photographed backwards, every face turned', (function () {
+  for (var t = 0; t < 10; t++) {
+    var truth = randomCube();
+    var shot = photograph(truth, { order: [5, 4, 3, 2, 1, 0], turns: [1, 2, 3, 0, 2, 1] });
+    var out = A4.assemble(shot.captures, N);
+    if (!out.ok) return false;
+    if (!sameCube(out.colors, truth) && !out.ambiguous) return false;
+  }
+  return true;
+})());
+
+check('a solved cube still assembles', (function () {
+  var shot = photograph(cube.SOLVED);
+  var out = A4.assemble(shot.captures, N);
+  return out.ok;
+})());
+
+console.log('\nrefusing the impossible');
+check('a miscounted colour is refused with a reason', (function () {
+  var truth = randomCube();
+  var shot = photograph(truth);
+  shot.captures[0][0] = (shot.captures[0][0] + 1) % 6;
+  var out = A4.assemble(shot.captures, N);
+  return !out.ok && /do not add up/.test(out.message);
+})());
+
+check('two stickers swapped between faces is refused', (function () {
+  var refused = 0, total = 20;
+  for (var t = 0; t < total; t++) {
+    var truth = randomCube();
+    var shot = photograph(truth, { order: [0, 1, 2, 3, 4, 5], turns: [0, 0, 0, 0, 0, 0] });
+    // swap a corner sticker with a centre sticker of a different colour
+    var a = shot.captures[0][0], b = shot.captures[1][5];
+    if (a === b) { total--; continue; }
+    shot.captures[0][0] = b; shot.captures[1][5] = a;
+    var out = A4.assemble(shot.captures, N);
+    if (!out.ok) refused++;
+  }
+  console.log('    refused ' + refused + '/' + total);
+  return refused >= total * 0.8;
+})());
+
+console.log('\n' + (failures ? failures + ' FAILURE(S)' : 'all checks passed') + '\n');
+process.exit(failures ? 1 : 0);
+

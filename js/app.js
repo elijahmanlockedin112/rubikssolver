@@ -183,7 +183,7 @@
       b.classList.toggle('is-active', +b.dataset.size === size);
     });
     $('size-note').textContent = size === 3
-      ? 'The camera works out the size on its own.'
+      ? 'Scanning and solving both work.'
       : '4×4: scanning and the map work; solving is still being built.';
     showView('setup');
     setMessage('');
@@ -597,6 +597,7 @@
     $('btn-scan').addEventListener('click', function () {
       var scanner = new CubeScanner({
         palette: PALETTE,
+        size: size,                 // scan the size that is selected, nothing else
         onDone: function (result) {
           if (result.colors) colorState.set(result.colors);
           unsure = {};
