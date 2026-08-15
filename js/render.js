@@ -96,6 +96,7 @@
       var halfR = scale(right, N / 2), halfD = scale(down, N / 2);
       list.push({
         facelet: -1,
+        face: face,
         normal: normal,
         layerFor: null,
         verts: [
@@ -112,6 +113,7 @@
           var r = scale(right, STICKER), d = scale(down, STICKER);
           list.push({
             facelet: face * N * N + row * N + col,
+            face: face,
             normal: normal,
             point: s.p,
             verts: [
@@ -246,19 +248,40 @@
       var g = this.geometry[i];
       var moving = anim && g.layer[anim.axis] === anim.layer;
       var inFocus = focusAxis >= 0 && g.layer[focusAxis] === focusLayer;
-      var pts = [], depth = 0, cx3 = 0, cy3 = 0, cz3 = 0;
+      var pts = [], depth = 0, cx3 = 0, cy3 = 0, cz3 = 0, nearest = -Infinity, furthest = Infinity;
       for (var k = 0; k < 4; k++) {
         var p = g.verts[k];
         if (moving) p = rotateAbout(p, anim.axis, angle);
         var v = cam(p);
         pts.push(v);
         depth += v[2] / 4; cx3 += v[0] / 4; cy3 += v[1] / 4; cz3 += v[2] / 4;
+        if (v[2] > nearest) nearest = v[2];
+        if (v[2] < furthest) furthest = v[2];
       }
+
+      /*
+       * Sort the backing panel by its FURTHEST corner, not by its middle.
+       *
+       * Quads are painted far to near, ordered on the average depth of their
+       * corners. That is fine for two stickers, which never overlap, but a
+       * panel is one quad covering a whole face: seen at an angle its middle
+       * can be nearer than a sticker sitting along its far edge, so the panel
+       * gets painted last and hides it. Half the cube went missing this way —
+       * 48% of the drawn pixels on a 4x4 at the default camera were panel, and
+       * 24 of its 48 visible stickers sorted behind their own face. It cleared
+       * up when the cube was turned square-on, which is exactly how it looked:
+       * pieces missing until you moved it.
+       *
+       * A panel's furthest corner is behind every sticker on that face, since
+       * those all sit inside it, so ordering by that corner puts the panel
+       * first and keeps it there from every angle.
+       */
+      if (g.facelet < 0) depth = furthest;
       var n = g.normal;
       if (moving) n = rotateAbout(n, anim.axis, angle);
       n = cam(n);
       if (n[0] * -cx3 + n[1] * -cy3 + n[2] * (dist - cz3) <= 0) continue;
-      quads.push({ pts: pts.map(project), depth: depth, facelet: g.facelet, focus: inFocus });
+      quads.push({ pts: pts.map(project), depth: depth, facelet: g.facelet, face: g.face, focus: inFocus });
     }
     quads.sort(function (a, b) { return a.depth - b.depth; });
 
