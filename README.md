@@ -6,12 +6,16 @@ Tell it what your cube looks like, and it shows you — in 3D, one turn at a tim
 exactly how to solve it. No notation to learn: every step is an animated cube
 with an arrow on the layer you turn.
 
+**▶ Try it: https://elijahmanlockedin112.github.io/rubikssolver/**
+
 Runs entirely in the browser. No build step, no dependencies, no server, no
 network. Open `index.html` and it works, offline, forever.
 
 ## Using it
 
-1. Open `index.html` in a browser.
+1. Open the [live version](https://elijahmanlockedin112.github.io/rubikssolver/),
+   or `index.html` from a copy of this repo. On a phone, use the live version —
+   browsers only hand over the camera on an https:// address.
 2. Enter your cube's colors — either **scan them with your camera** (six snaps,
    any order, any way up) or click them onto the flat map / the 3D cube.
 3. Pick a solution style:
@@ -22,12 +26,22 @@ network. Open `index.html` and it works, offline, forever.
 Keep the cube in the same orientation the whole way through — the banner at the
 top of the solve screen reminds you which color goes up and which faces you.
 
-## On your phone (Tailscale)
+## Hosting it
 
-Scanning really wants a phone's rear camera, and phone browsers only allow
-camera access over HTTPS. Tailscale Serve solves both: it gives the machine a
-real HTTPS certificate on your tailnet, reachable from any device signed into
-the same account — and **not** from the public internet.
+The whole app is static files, and every path in it is relative, so it drops
+onto GitHub Pages as-is: *Settings → Pages → deploy from `main`, folder `/ (root)`*.
+That is what the link at the top is.
+
+The hosted copy has no `/api/scan` behind it, which costs nothing — scanning
+runs on the device. The Gemini fallback below simply never gets asked, and the
+scanner degrades to reporting what it could not work out.
+
+## Testing changes on your phone (Tailscale)
+
+Handy while working on it: rather than pushing to see a change on a phone,
+Tailscale Serve gives this machine a real HTTPS certificate on your tailnet,
+reachable from any device signed into the same account — and **not** from the
+public internet.
 
 Double-click `tools/phone.cmd`, or run it by hand:
 
