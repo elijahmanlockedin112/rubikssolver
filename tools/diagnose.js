@@ -53,7 +53,9 @@ files.forEach(function (file) {
     console.log('  blobs ' + debug.blobs + ' -> sticker-shaped ' + debug.candidates +
       (debug.candidateAreas ? ' | biggest areas ' + debug.candidateAreas.join(',') : ''));
     if (debug.lattice) console.log('  lattice matched ' + debug.lattice.matched + '/9, step ' + debug.lattice.step);
-    if (debug.seamCheck !== undefined) console.log('  seams darker than stickers: ' + debug.seamCheck);
+    if (debug.flatness !== undefined) {
+      console.log('  cell flatness ' + debug.flatness + ' (lower is flatter) -> passes: ' + debug.flatCheck);
+    }
   }
 
   // A picture of what the detector actually had to work with.

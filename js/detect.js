@@ -261,43 +261,52 @@
   }
 
   /**
-   * A cube face has dark plastic between the stickers. Checking for it is what
-   * stops a patterned rug or a bookshelf from passing as a cube.
+   * Is this really a cube face?
+   *
+   * NOT by looking for dark plastic between the stickers. That was the first
+   * thing tried and it is wrong: plenty of cubes are stickerless, with the
+   * colour moulded into the piece and barely a seam to find, and on those the
+   * check rejected grids the detector had located perfectly.
+   *
+   * What every cube does have, sticker or not, is nine flat patches of colour.
+   * So the test is flatness: sample the inside of each cell and require it to
+   * be an even colour. Carpet, wood grain, book spines and faces are all
+   * textured; a cube face is not.
    */
-  function looksLikeACube(v, w, h, lattice) {
-    function at(x, y) {
-      var xi = Math.round(x), yi = Math.round(y);
-      if (xi < 0 || yi < 0 || xi >= w || yi >= h) return null;
-      return v[yi * w + xi];
-    }
+  function looksLikeACube(small, lattice, report) {
+    var w = small.width, h = small.height;
+
     function point(row, col) {
       return { x: lattice.ox + col * lattice.vx + row * lattice.wx,
         y: lattice.oy + col * lattice.vy + row * lattice.wy };
     }
 
-    var cellV = [], gapV = [];
+    var radius = Math.max(1, lattice.step * 0.2);
+    var spreads = [];
     for (var r = 0; r < 3; r++) {
       for (var c = 0; c < 3; c++) {
         var p = point(r, c);
-        var value = at(p.x, p.y);
-        if (value === null) return false;      // the grid runs off the frame
-        cellV.push(value);
-        if (c < 2) {
-          var gh = at((p.x + point(r, c + 1).x) / 2, (p.y + point(r, c + 1).y) / 2);
-          if (gh !== null) gapV.push(gh);
+        if (p.x < 0 || p.y < 0 || p.x >= w || p.y >= h) return false;   // runs off the frame
+
+        var x0 = Math.max(0, Math.round(p.x - radius)), x1 = Math.min(w - 1, Math.round(p.x + radius));
+        var y0 = Math.max(0, Math.round(p.y - radius)), y1 = Math.min(h - 1, Math.round(p.y + radius));
+        var vals = [];
+        for (var y = y0; y <= y1; y++) {
+          for (var x = x0; x <= x1; x++) {
+            var o = (y * w + x) * 3;
+            vals.push(Math.max(small.data[o], Math.max(small.data[o + 1], small.data[o + 2])));
+          }
         }
-        if (r < 2) {
-          var gv = at((p.x + point(r + 1, c).x) / 2, (p.y + point(r + 1, c).y) / 2);
-          if (gv !== null) gapV.push(gv);
-        }
+        if (vals.length < 4) return false;
+        vals.sort(function (a, b) { return a - b; });
+        // 20th to 80th percentile, so one glare speck does not condemn a cell
+        spreads.push(vals[Math.floor(vals.length * 0.8)] - vals[Math.floor(vals.length * 0.2)]);
       }
     }
-    if (gapV.length < 8) return false;
-    cellV.sort(function (x, y) { return x - y; });
-    gapV.sort(function (x, y) { return x - y; });
-    var cellMid = cellV[cellV.length >> 1];
-    var gapMid = gapV[gapV.length >> 1];
-    return gapMid < cellMid * 0.72;            // the seams must actually be darker
+    spreads.sort(function (a, b) { return a - b; });
+    var typical = spreads[spreads.length >> 1];
+    if (report) report.flatness = typical;
+    return typical <= 46;
   }
 
   /** Tilt of the lattice, from the direction to each blob's nearest neighbour. */
@@ -539,10 +548,10 @@
     // full affine fit of whatever it matched, which absorbs the perspective.
     lattice = refine(lattice, candidates) || lattice;
 
-    var verified = looksLikeACube(v, small.width, small.height, lattice);
-    if (debug) debug.seamCheck = verified;
+    var verified = looksLikeACube(small, lattice, debug);
+    if (debug) debug.flatCheck = verified;
     if (!verified) {
-      if (debug) { debug.stage = 'grid found but the seams are not darker than the stickers'; return { failed: true, debug: debug }; }
+      if (debug) { debug.stage = 'grid found but the patches are too textured to be cube faces'; return { failed: true, debug: debug }; }
       return null;
     }
     if (debug) debug.stage = 'ok';

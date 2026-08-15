@@ -160,6 +160,44 @@ check('a plain wall is refused', (function () {
 })());
 
 console.log('\nawkward cases');
+
+// The detector used to demand dark plastic between the stickers. Plenty of
+// cubes are stickerless with barely a seam, and on a real one that check threw
+// away grids it had already located perfectly. Never again.
+check('a stickerless cube with barely any seam is found', (function () {
+  var thin = 0;
+  for (var t = 0; t < 25; t++) {
+    var opts = {
+      angle: rand(-0.2, 0.2), scale: rand(50, 90), cx: rand(200, 280), cy: rand(140, 220),
+      shade: 0.2, noise: 8, gap: 0.03           // a hairline between the tiles
+    };
+    var found = D.detectFace(renderFace(randomCells(), opts));
+    if (found && !found.failed && gridError(opts, found) < 0.3) thin++;
+  }
+  return thin >= 23;
+})());
+
+check('a face with bright seams is still found', (function () {
+  // some cubes are white-bodied: the gaps are lighter than the colours
+  var opts = { angle: 0.1, scale: 70, cx: 240, cy: 180, shade: 0.1, noise: 6 };
+  var img = renderFace(randomCells(), opts);
+  // repaint the seams white by drawing a light grid over them
+  var cos = Math.cos(-opts.angle), sin = Math.sin(-opts.angle);
+  for (var y = 0; y < img.height; y++) {
+    for (var x = 0; x < img.width; x++) {
+      var dx = (x - opts.cx) / opts.scale, dy = (y - opts.cy) / opts.scale;
+      var u = dx * cos - dy * sin + 1.5, v = dx * sin + dy * cos + 1.5;
+      if (u < 0 || u >= 3 || v < 0 || v >= 3) continue;
+      var fu = u - Math.floor(u), fv = v - Math.floor(v);
+      if (fu < 0.1 || fu > 0.9 || fv < 0.1 || fv > 0.9) {
+        var o = (y * img.width + x) * 4;
+        img.data[o] = img.data[o + 1] = img.data[o + 2] = 245;
+      }
+    }
+  }
+  var found = D.detectFace(img);
+  return !!found && !found.failed && gridError(opts, found) < 0.3;
+})());
 check('a sticker lost to glare is filled in from the grid', (function () {
   var opts = { angle: 0, scale: 70, cx: 240, cy: 180, shade: 0, noise: 0 };
   var img = renderFace(randomCells(), opts);
