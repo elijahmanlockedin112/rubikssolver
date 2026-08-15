@@ -1,5 +1,7 @@
 # Rubik's Cube Coach
 
+*A fun weekend project for a Rubik's cube solver.*
+
 Tell it what your cube looks like, and it shows you — in 3D, one turn at a time —
 exactly how to solve it. No notation to learn: every step is an animated cube
 with an arrow on the layer you turn.
