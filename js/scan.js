@@ -1,11 +1,11 @@
-/*
- * scan.js — read a cube's colors through the camera.
+﻿/*
+ * scan.js â€” read a cube's colors through the camera.
  *
  * Point at a face, press the button, six times. Any order, any way up: the
  * centre sticker says which face it is, and the assembler works out the
  * rotations by finding the one arrangement that is a real cube.
  *
- * Reading happens on the device and takes a few milliseconds — detect.js finds
+ * Reading happens on the device and takes a few milliseconds â€” detect.js finds
  * the 3x3 grid in the photo, assemble.js names the colours and fits the six
  * faces together. Nothing leaves the machine.
  *
@@ -65,10 +65,10 @@
     this.locked = null;
     this.el.capture.disabled = true;
     this.render();
-    this.message('Starting the camera…');
+    this.message('Starting the cameraâ€¦');
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      this.message('This page has no camera access at all — browsers only hand it over on an https:// ' +
+      this.message('This page has no camera access at all â€” browsers only hand it over on an https:// ' +
         'address (or localhost). See the Tailscale notes in the README, or fill the colors in by hand.', true);
       return;
     }
@@ -105,8 +105,8 @@
 
   Scanner.prototype.render = function () {
     var done = this.samples.length;
-    this.el.title.textContent = done >= 6 ? 'Reading the cube…' : 'Face ' + (done + 1) + ' of 6';
-    this.el.tip.textContent = 'Point a face at the camera and snap it. Any order, any way up — ' +
+    this.el.title.textContent = done >= 6 ? 'Reading the cubeâ€¦' : 'Face ' + (done + 1) + ' of 6';
+    this.el.tip.textContent = 'Point a face at the camera and snap it. Any order, any way up â€” ' +
       'turn the cube however you like between shots.';
     this.el.capture.textContent = 'Snap';
     this.el.undo.disabled = done === 0;
@@ -213,7 +213,7 @@
 
     var center = found.samples[4];
     for (var i = 0; i < this.centers.length; i++) {
-      if (CubeAssemble.colorCost(center, this.centers[i]) < 18) {
+      if (CubeAssemble.colorCost(center, this.centers[i]) < 12) {
         this.message('That is the same face as photo ' + (i + 1) + '. Turn the cube to a face you ' +
           'have not done yet.', true);
         return;
@@ -226,12 +226,12 @@
 
     if (this.samples.length >= 6) { this.finish(); return; }
     this.render();
-    this.message('Got it — ' + (6 - this.samples.length) + ' to go.');
+    this.message('Got it â€” ' + (6 - this.samples.length) + ' to go.');
   };
 
   /**
-   * A shot the detector could not read. Say what it actually saw, and — since
-   * this is exactly the case that is impossible to debug from a description —
+   * A shot the detector could not read. Say what it actually saw, and â€” since
+   * this is exactly the case that is impossible to debug from a description â€”
    * post the frame back to the local server, which writes it to ./testdata on
    * this machine. Nothing leaves the machine.
    */
@@ -298,7 +298,7 @@
     }
 
     // Nothing fit together. Ask the server for a second opinion if it can.
-    this.message('The colours did not add up. Trying a second opinion…');
+    this.message('The colours did not add up. Trying a second opinionâ€¦');
     var body = {
       images: this.photos.map(function (data, i) {
         return { photo: i + 1, mimeType: 'image/jpeg', data: data };
@@ -342,14 +342,14 @@
   function cameraProblem(err) {
     var name = err && err.name ? err.name : '';
     if (name === 'NotAllowedError' || name === 'SecurityError') {
-      return 'Camera access was blocked. Allow it for this site in your browser settings and try again — ' +
+      return 'Camera access was blocked. Allow it for this site in your browser settings and try again â€” ' +
         'on a phone the permission prompt is easy to dismiss by accident.';
     }
     if (name === 'NotFoundError' || name === 'OverconstrainedError' || name === 'DevicesNotFoundError') {
       return 'No camera on this device. Try it from your phone, or fill the colors in by hand.';
     }
     if (name === 'NotReadableError' || name === 'TrackStartError') {
-      return 'The camera is busy — another app or tab probably has it. Close that and try again.';
+      return 'The camera is busy â€” another app or tab probably has it. Close that and try again.';
     }
     return 'The camera would not start' + (name ? ' (' + name + ')' : '') + '. Fill the colors in by hand instead.';
   }
@@ -357,3 +357,4 @@
   root.CubeScanner = Scanner;
   if (typeof module === 'object' && module.exports) module.exports = Scanner;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
+
