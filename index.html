@@ -36,6 +36,12 @@
       You can click stickers on the flat map <em>or</em> on the 3D cube.
     </p>
 
+    <div class="size-picker" role="group" aria-label="Cube size">
+      <button class="size-option is-active" data-size="3">3×3</button>
+      <button class="size-option" data-size="4">4×4</button>
+      <span class="size-note" id="size-note">The camera works out the size on its own.</span>
+    </div>
+
     <div class="scan-cta">
       <button id="btn-scan" class="btn btn-scan">📷 Scan with your camera</button>
       <span class="scan-cta-note">Six quick snaps, then check the map below.</span>
@@ -181,6 +187,7 @@
 </footer>
 
 <script src="js/cube.js"></script>
+<script src="js/cuben.js"></script>
 <script src="js/solver.js"></script>
 <script src="js/kociemba.js"></script>
 <script src="js/render.js"></script>

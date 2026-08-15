@@ -191,12 +191,37 @@
     return cache[N];
   }
 
+  /**
+   * Which layer a move turns, and which way. Anything that draws the cube asks
+   * for this rather than working it out again, so a move can never animate one
+   * layer while the model turns another.
+   */
+  function moveGeometry(N, move) {
+    var letter = move[0];
+    var face = FACE_LETTERS.indexOf(letter.toUpperCase());
+    if (face < 0) return null;
+    var body = move.slice(1).replace(/['2]/g, '');
+    var deeper = parseInt(body, 10);
+    var depth = letter === letter.toUpperCase() ? 0 : (isNaN(deeper) ? 1 : deeper);
+
+    var axis = (face === 0 || face === 3) ? AXIS.y : (face === 1 || face === 4) ? AXIS.x : AXIS.z;
+    var positiveSide = (face === 0 || face === 1 || face === 2);
+    var layer = positiveSide ? depth : N - 1 - depth;
+    var dir = positiveSide ? -1 : 1;
+    if (/'/.test(move)) dir = -dir;
+    var quarters = /2/.test(move.slice(1)) ? 2 : 1;
+    return { axis: axis, layer: layer, dir: dir, quarters: quarters, angle: dir * quarters * 90 };
+  }
+
   return {
     of: of,
     build: build,
     stickerPoint: stickerPoint,
     stickerIndex: stickerIndex,
     layerPermutation: layerPermutation,
+    layerOf: layerOf,
+    moveGeometry: moveGeometry,
+    AXIS: AXIS,
     FACE_LETTERS: FACE_LETTERS
   };
 });

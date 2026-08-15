@@ -230,27 +230,22 @@
       return;
     }
 
-    if (this.size !== 3) {
-      // The grid finder handles 4x4 already; fitting six 4x4 faces into a cube
-      // and solving it does not exist yet, so say so rather than half-do it.
-      this.message('Found the whole ' + found.size + '×' + found.size + ' face — all ' +
-        found.points.length + ' stickers located. Reading and solving a ' + found.size + '×' +
-        found.size + ' is still being built, so nothing is saved yet. 3×3 works today.', true);
-      this.size = null;
-      return;
-    }
-
-    var center = found.samples[4];
-    for (var i = 0; i < this.centers.length; i++) {
-      if (CubeAssemble.colorCost(center, this.centers[i]) < 12) {
-        this.message('That is the same face as photo ' + (i + 1) + '. Turn the cube to a face you ' +
-          'have not done yet.', true);
-        return;
+    // A 3x3 has a fixed centre sticker, so a repeated face can be spotted the
+    // moment it is taken. A 4x4 has no such sticker, so there is nothing to
+    // compare and the check simply does not apply.
+    var center = this.size === 3 ? found.samples[4] : null;
+    if (center) {
+      for (var i = 0; i < this.centers.length; i++) {
+        if (CubeAssemble.colorCost(center, this.centers[i]) < 12) {
+          this.message('That is the same face as photo ' + (i + 1) + '. Turn the cube to a face you ' +
+            'have not done yet.', true);
+          return;
+        }
       }
     }
 
     this.samples.push(found.samples);
-    this.centers.push(center);
+    this.centers.push(center || averageColor(found.samples));
 
     if (this.samples.length >= 6) { this.finish(); return; }
     this.render();
@@ -308,11 +303,30 @@
     this.message('');
   };
 
+  /** Just for the little captured-face chips, when there is no centre to show. */
+  function averageColor(samples) {
+    var r = 0, g = 0, b = 0;
+    samples.forEach(function (s) { r += s[0]; g += s[1]; b += s[2]; });
+    return [r / samples.length, g / samples.length, b / samples.length];
+  }
+
   Scanner.prototype.finish = function () {
     this.busy = true;
     this.el.capture.disabled = true;
     this.el.undo.disabled = true;
     this.render();
+
+    if (this.size !== 3) {
+      // No fixed centres, so which photo is which face cannot be worked out the
+      // way a 3x3 does it. Until that is built, the faces are taken in the order
+      // they were shot — the colours are read properly, the arrangement is a
+      // guess, and the user is told exactly that.
+      var read = CubeAssemble.clusterStickers(this.samples, this.size);
+      this.done({
+        colors: read, unsure: [], source: 'device-unordered', size: this.size
+      });
+      return;
+    }
 
     var built = CubeAssemble.assemble(this.samples);
     this.done(built.ok

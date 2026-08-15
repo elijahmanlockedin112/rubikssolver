@@ -253,6 +253,17 @@ h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .notation-list .now { background: var(--accent); color: #06111f; border-radius: 4px; padding: 1px 4px; }
 
 /* ---------- scan + mode ---------- */
+.size-picker { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.size-option {
+  font: inherit; font-size: 0.9rem; font-weight: 600;
+  color: var(--text-dim); background: var(--bg-panel-2);
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 16px; cursor: pointer;
+}
+.size-option:hover { border-color: #3a4150; color: var(--text); }
+.size-option.is-active { border-color: var(--accent); color: var(--text); background: rgba(76,141,255,0.14); }
+.size-note { font-size: 0.78rem; color: var(--text-dim); }
+
 .scan-cta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
 .btn-scan {
   background: linear-gradient(135deg, #2f6bd8, #2aa17a);

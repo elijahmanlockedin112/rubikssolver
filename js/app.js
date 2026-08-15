@@ -34,9 +34,13 @@
     { move: 190, gap: 60 }
   ];
 
+  var size = 3;                      // 3 for a 3x3, 4 for a 4x4
+  function perFace() { return size * size; }
+  function stickerCount() { return 6 * perFace(); }
+
   function solvedColorState() {
-    var s = new Int8Array(54);
-    for (var i = 0; i < 54; i++) s[i] = DEFAULT_FACE_COLOR[(i / 9) | 0];
+    var s = new Int8Array(stickerCount());
+    for (var i = 0; i < s.length; i++) s[i] = DEFAULT_FACE_COLOR[(i / perFace()) | 0];
     return s;
   }
 
@@ -99,6 +103,7 @@
 
   function buildNet() {
     var net = $('net');
+    net.innerHTML = '';
     NET_SLOTS.forEach(function (slot) {
       var holder = document.createElement('div');
       holder.className = 'face-slot';
@@ -112,10 +117,12 @@
 
       var face = document.createElement('div');
       face.className = 'face';
-      for (var i = 0; i < 9; i++) {
-        var idx = slot.face * 9 + i;
+      face.style.gridTemplateColumns = 'repeat(' + size + ', 1fr)';
+      for (var i = 0; i < perFace(); i++) {
+        var idx = slot.face * perFace() + i;
         var cell = document.createElement('button');
-        cell.className = 'sticker' + (i === 4 ? ' is-center' : '');
+        // Only a 3x3 has a fixed centre; on a 4x4 every sticker is fair game.
+        cell.className = 'sticker' + (isCenter(idx) ? ' is-center' : '');
         cell.dataset.index = idx;
         cell.type = 'button';
         cell.addEventListener('pointerdown', function (e) {
@@ -133,7 +140,10 @@
     document.addEventListener('pointerup', function () { painting = false; });
   }
 
-  function isCenter(idx) { return idx % 9 === 4; }
+  // A 3x3's centre sticker is bolted to the core and never moves, so the editor
+  // protects it. A 4x4 has no such sticker — its four middle pieces are pieces
+  // like any other — so nothing is locked.
+  function isCenter(idx) { return size === 3 && idx % 9 === 4; }
 
   function paint(idx) {
     if (isCenter(idx) && !$('edit-centers').checked) return;
@@ -156,7 +166,37 @@
     });
   }
 
+  /** Switch the whole app between cube sizes. */
+  function setSize(next) {
+    if (next === size) return;
+    size = next;
+    colorState = solvedColorState();
+    unsure = {};
+    repairNote = null;
+    result = null;
+    [previewFront, previewBack, solveFront, solveBack].forEach(function (v) { v.setSize(size); });
+    buildNet();
+    refreshNet();
+    refreshViews();
+    updateHoldLabels();
+    document.querySelectorAll('.size-option').forEach(function (b) {
+      b.classList.toggle('is-active', +b.dataset.size === size);
+    });
+    $('size-note').textContent = size === 3
+      ? 'The camera works out the size on its own.'
+      : '4×4: scanning and the map work; solving is still being built.';
+    showView('setup');
+    setMessage('');
+    save();
+  }
+
   function updateHoldLabels() {
+    if (size !== 3) {
+      // no fixed centres to name, so there is no "hold it like this"
+      $('hold-top').textContent = 'a';
+      $('hold-front').textContent = 'any';
+      return;
+    }
     var top = colorState[Cube.CENTERS[0]], front = colorState[Cube.CENTERS[2]];
     var topName = top < 0 ? 'the top' : COLOR_NAMES[top];
     var frontName = front < 0 ? 'the front' : COLOR_NAMES[front];
@@ -176,8 +216,9 @@
       var raw = localStorage.getItem(STORE_KEY);
       if (!raw) return;
       var arr = JSON.parse(raw);
-      if (Array.isArray(arr) && arr.length === 54) {
-        for (var i = 0; i < 54; i++) colorState[i] = arr[i];
+      // a saved 4x4 must not be poured into a 3x3 and vice versa
+      if (Array.isArray(arr) && arr.length === stickerCount()) {
+        for (var i = 0; i < arr.length; i++) colorState[i] = arr[i];
       }
     } catch (e) { /* ignore */ }
   }
@@ -274,6 +315,11 @@
   }
 
   function doSolve() {
+    if (size !== 3) {
+      setMessage('Solving a ' + size + '×' + size + ' is still being built. The map and the 3D view ' +
+        'work — scan one and have a look — but there is no solution to follow yet.', 'error');
+      return;
+    }
     // A cube that is nearly right is usually one sticker away from being right,
     // and "is this a real cube?" is a tight enough test to say which sticker.
     repairNote = null;
@@ -307,7 +353,7 @@
     if (!check.ok) { setMessage(check.message, 'error'); return; }
 
     var solved = true;
-    for (var i = 0; i < 54; i++) if (solverState[i] !== Cube.SOLVED[i]) { solved = false; break; }
+    for (var i = 0; i < solverState.length; i++) if (solverState[i] !== Cube.SOLVED[i]) { solved = false; break; }
     if (solved) { setMessage('That cube is already solved. Nothing to do!', 'ok'); return; }
 
     if (currentMode() === 'fast') {
@@ -335,7 +381,7 @@
     result = solution;
     colorStates = [Int8Array.from(colorState)];
     for (var m = 0; m < result.moves.length; m++) {
-      colorStates.push(Cube.permute(colorStates[m], Cube.MOVE_PERMS[result.moves[m]], new Int8Array(54)));
+      colorStates.push(Cube.permute(colorStates[m], Cube.MOVE_PERMS[result.moves[m]], new Int8Array(stickerCount())));
     }
 
     setMessage('');
@@ -528,12 +574,17 @@
       setMessage('');
     });
     $('btn-clear').addEventListener('click', function () {
-      for (var i = 0; i < 54; i++) if (!isCenter(i)) colorState[i] = -1;
+      for (var i = 0; i < stickerCount(); i++) if (!isCenter(i)) colorState[i] = -1;
       refreshNet(); refreshViews(); save();
-      setMessage('Cleared — the centers stay put because they never move on a real cube.');
+      setMessage(size === 3
+        ? 'Cleared — the centers stay put because they never move on a 3x3.'
+        : 'Cleared. A 4x4 has no fixed centers, so everything went.');
     });
     $('edit-centers').addEventListener('change', function (e) {
       $('net').classList.toggle('centers-unlocked', e.target.checked);
+    });
+    document.querySelectorAll('.size-option').forEach(function (button) {
+      button.addEventListener('click', function () { setSize(+button.dataset.size); });
     });
     document.querySelectorAll('input[name="mode"]').forEach(function (radio) {
       radio.addEventListener('change', function () {
@@ -552,7 +603,12 @@
           (result.unsure || []).forEach(function (i) { unsure[i] = true; });
           refreshNet(); refreshViews(); updateHoldLabels(); save();
 
-          if (result.source === 'failed') {
+          if (result.source === 'device-unordered') {
+            setMessage('Read all ' + result.colors.length + ' stickers of your ' + size + '×' + size +
+              '. Colours are right, but which photo is which face is still guesswork on a ' + size +
+              '×' + size + ' — it has no fixed centre to go by — so the faces are laid out in the ' +
+              'order you shot them. Working that out properly is the next piece.', 'error');
+          } else if (result.source === 'failed') {
             setMessage(result.note || 'Those photos did not add up to a real cube. Fix the wrong ' +
               'stickers on the map, or scan again.', 'error');
           } else if (result.ambiguous) {
