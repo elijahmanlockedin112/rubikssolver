@@ -65,22 +65,25 @@ function readBody(req, limitBytes) {
 // ---- Gemini ---------------------------------------------------------------
 
 var modelPromise = null;
-function resolveModel() {
-  if (MODEL) return Promise.resolve(MODEL);
+function resolveModels() {
+  if (MODEL) return Promise.resolve([MODEL]);
   if (modelPromise) return modelPromise;
   modelPromise = fetch(API_ROOT + '/models?key=' + encodeURIComponent(API_KEY))
     .then(function (r) { return r.json(); })
     .then(function (data) {
       if (data && data.error) throw new Error(data.error.message || 'model list failed');
-      var picked = Gemini.chooseModel(data && data.models);
-      if (!picked) throw new Error('no vision-capable model available on this key');
-      MODEL = picked;
-      console.log('  Gemini model: ' + picked);
-      return picked;
+      var ranked = Gemini.rankModels(data && data.models);
+      if (!ranked.length) throw new Error('no vision-capable model available on this key');
+      MODEL = ranked[0];
+      console.log('  Gemini model: ' + ranked[0] +
+        (ranked.length > 1 ? ' (falling back to ' + ranked[1] + ' if busy)' : ''));
+      return ranked;
     })
     .catch(function (err) { modelPromise = null; throw err; });
   return modelPromise;
 }
+
+function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
 function callGemini(model, parts) {
   return fetch(API_ROOT + '/models/' + model + ':generateContent?key=' + encodeURIComponent(API_KEY), {
@@ -116,27 +119,49 @@ function scanImages(images) {
     baseParts.push({ inlineData: { mimeType: im.mimeType || 'image/jpeg', data: im.data } });
   });
 
-  return resolveModel().then(function (model) {
-    var attempts = [];
+  /**
+   * The newest model is also the busiest. Retry a couple of times on the
+   * transient "high demand" style failures, then move down the ranking rather
+   * than dropping the user into the rough local reader.
+   */
+  function withCapacity(models, parts, tries) {
+    var model = models[0];
+    return callGemini(model, parts).catch(function (err) {
+      if (!Gemini.isTransientFailure(err.message)) throw err;
+      if (tries > 0) {
+        console.log('  ' + model + ' busy, retrying…');
+        return delay(1200).then(function () { return withCapacity(models, parts, tries - 1); });
+      }
+      if (models.length > 1) {
+        console.log('  ' + model + ' still busy, falling back to ' + models[1]);
+        return withCapacity(models.slice(1), parts, 1);
+      }
+      throw err;
+    }).then(function (payload) { return { payload: payload, model: models[0] }; });
+  }
+
+  return resolveModels().then(function (models) {
+    var usedModel = models[0];
 
     function attempt(parts, round) {
-      return callGemini(model, parts).then(function (payload) {
+      return withCapacity(models, parts, 2).then(function (out) {
+        usedModel = out.model;
+        var payload = out.payload;
         var parsed = Gemini.parseFaces(payload);
         var complaint = parsed.problems.length
           ? parsed.problems.slice(0, 4).join('; ')
           : Gemini.checkCube(parsed.colors);
 
         if (!complaint) {
-          return { colors: Array.from(parsed.colors), uncertain: parsed.uncertain, rounds: round + 1, model: model };
+          return { colors: Array.from(parsed.colors), uncertain: parsed.uncertain, rounds: round + 1, model: usedModel };
         }
-        attempts.push(complaint);
         if (round >= 2) {
           // Out of retries: hand back the best read we have and let the user fix it.
           return {
             colors: parsed.colors ? Array.from(parsed.colors) : null,
             uncertain: parsed.uncertain,
             rounds: round + 1,
-            model: model,
+            model: usedModel,
             warning: complaint
           };
         }
@@ -197,7 +222,7 @@ server.listen(port, function () {
   console.log('Rubik\'s Cube Coach running at http://localhost:' + port);
   if (API_KEY) {
     console.log('  Gemini scanning: on');
-    resolveModel().catch(function (err) { console.log('  Gemini model lookup failed: ' + err.message); });
+    resolveModels().catch(function (err) { console.log('  Gemini model lookup failed: ' + err.message); });
   } else {
     console.log('  Gemini scanning: off (no GEMINI_API_KEY) — the built-in color reader will be used');
   }

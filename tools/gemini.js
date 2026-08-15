@@ -54,12 +54,17 @@ function buildPrompt(faceOrder) {
   return [
     'You are reading the sticker colors off a 3x3 Rubik\'s cube.',
     '',
-    'There are six photos, each showing one face straight on, already the right way up:',
+    'There are six photos, each showing one face of the same cube, held the right way up:',
     lines.join('\n'),
     '',
+    'The photos are handheld, so a face may be tilted, off-centre, lit unevenly, or small in',
+    'the frame, and part of a neighbouring face may be visible down one side. Find the face',
+    'that is pointing at the camera and read only that one.',
+    '',
     'For each photo, report the 9 sticker colors in reading order: top-left, top-middle,',
-    'top-right, middle-left, center, middle-right, bottom-left, bottom-middle, bottom-right,',
-    'exactly as the stickers appear in that photo. Do not rotate or mirror anything.',
+    'top-right, middle-left, center, middle-right, bottom-left, bottom-middle, bottom-right.',
+    'Rows and columns are the cube\'s own, so follow the tilt of the cube rather than the edges',
+    'of the photo. Do not rotate or mirror anything beyond that.',
     '',
     'Rules:',
     '- Use only these color names: ' + COLOR_NAMES.join(', ') + '.',
@@ -157,35 +162,53 @@ function crossCheck(a, b) {
  * Pick a model from the API's own list, so nothing here depends on a
  * hardcoded name that may have been retired. Prefers a current flash model.
  */
-function chooseModel(models) {
+// Families that are not general-purpose text+vision models, and specialised
+// variants of ones that are. A name like "gemini-3.7-flash-video-understanding-eap"
+// advertises the same family and version as the plain model but is tuned for
+// something else entirely — reading nine stickers is not it.
+var NOT_GENERAL_PURPOSE = /(^|[-/])(gemma|lyria|imagen|veo|nano|antigravity|deep-research|learnlm|robotics)|embedding|aqa|(^|-)(tts|audio|live|omni)(-|$)|-image(-|$)|computer-use|video|customtools|-eap(-|$)|thinking/i;
+
+/** The usable models, best first. */
+function rankModels(models) {
   var usable = (models || []).filter(function (m) {
     var methods = m.supportedGenerationMethods || m.supported_generation_methods || [];
     if (methods.indexOf('generateContent') < 0) return false;
-    var name = String(m.name || '').replace(/^models\//, '');
-    return !/embedding|aqa|imagen|veo|tts|audio|image-generation|learnlm/i.test(name);
+    return !NOT_GENERAL_PURPOSE.test(String(m.name || '').replace(/^models\//, ''));
   }).map(function (m) { return String(m.name).replace(/^models\//, ''); });
-
-  if (!usable.length) return null;
 
   function score(name) {
     var s = 0;
-    if (/flash/i.test(name)) s += 100;
+    if (/flash/i.test(name)) s += 100;       // fast and cheap is the right trade here
     else if (/pro/i.test(name)) s += 60;
-    if (/-8b/i.test(name)) s -= 40;          // cheap but weaker at fine color work
+    if (/lite/i.test(name)) s -= 50;         // noticeably weaker at fine color work
+    if (/-8b/i.test(name)) s -= 40;
     if (/preview|exp/i.test(name)) s -= 15;  // prefer stable when versions tie
-    if (/lite/i.test(name)) s -= 20;
     if (/latest/i.test(name)) s += 5;
     var version = name.match(/(\d+)\.(\d+)/);
     if (version) s += parseInt(version[1], 10) * 10 + parseInt(version[2], 10);
     else {
-      var major = name.match(/gemini-(\d+)/);
+      var major = name.match(/gemini-(\d+)(?!\d)/);
       if (major) s += parseInt(major[1], 10) * 10;
     }
     return s;
   }
 
   usable.sort(function (x, y) { return score(y) - score(x); });
-  return usable[0];
+  return usable;
+}
+
+function chooseModel(models) {
+  var ranked = rankModels(models);
+  return ranked.length ? ranked[0] : null;
+}
+
+/**
+ * Upstream hiccups worth retrying or working around by switching model —
+ * as opposed to "your key is invalid", where trying again is pointless.
+ */
+function isTransientFailure(message) {
+  return /high demand|overload|try again|unavailable|temporarily|rate.?limit|exhausted|timeout|timed out|\b(429|500|502|503|504)\b/i
+    .test(String(message || ''));
 }
 
 module.exports = {
@@ -198,5 +221,7 @@ module.exports = {
   crossCheck: crossCheck,
   quotaReport: quotaReport,
   chooseModel: chooseModel,
+  rankModels: rankModels,
+  isTransientFailure: isTransientFailure,
   colorToIndex: colorToIndex
 };

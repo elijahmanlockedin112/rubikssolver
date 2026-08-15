@@ -99,10 +99,12 @@ check('a real scramble passes', (function () {
 })());
 
 check('miscounted colors are caught and named', (function () {
+  // Recolor one non-center sticker to something it definitely was not, so one
+  // color ends up with ten and another with eight.
   var c = scrambledColors();
-  var wrong = -1;
-  for (var i = 0; i < 54; i++) if (i % 9 !== 4 && c[i] !== c[0]) { wrong = i; break; }
-  c[wrong] = c[(wrong + 1) % 6 === c[wrong] ? 0 : (c[wrong] + 1) % 6];
+  var i = 0;
+  while (i % 9 === 4) i++;
+  c[i] = (c[i] + 1) % 6;
   var msg = G.checkCube(c);
   return msg !== null && /counts are wrong/.test(msg);
 })());
@@ -167,6 +169,59 @@ check('handles an unknown future naming scheme', (function () {
   return picked === 'gemini-4.0-flash';
 })());
 check('returns null when nothing is usable', G.chooseModel([]) === null && G.chooseModel(models(['text-embedding-004'])) === null);
+
+// A specialised variant advertises the same family and version as the plain
+// model, so version alone must not win. This is the real list from a live key.
+check('picks the plain flash model out of a real catalogue', (function () {
+  var real = [
+    'antigravity-preview-05-2026', 'deep-research-max-preview-04-2026', 'deep-research-pro-preview-12-2025',
+    'gemini-2.5-computer-use-preview-10-2025', 'gemini-2.5-flash', 'gemini-2.5-flash-image',
+    'gemini-2.5-flash-lite', 'gemini-2.5-flash-preview-tts', 'gemini-2.5-pro', 'gemini-3-flash-preview',
+    'gemini-3-pro-image', 'gemini-3.1-flash-image', 'gemini-3.1-flash-lite', 'gemini-3.1-flash-tts-preview',
+    'gemini-3.1-pro-preview', 'gemini-3.1-pro-preview-customtools', 'gemini-3.5-flash', 'gemini-3.5-flash-lite',
+    'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.7-flash-video-understanding-eap', 'gemini-flash-latest',
+    'gemini-flash-lite-latest', 'gemini-omni-flash-preview', 'gemini-pro-latest',
+    'gemini-robotics-er-2-preview', 'gemma-4-31b-it', 'lyria-3-pro-preview', 'nano-banana-pro-preview'
+  ];
+  return G.chooseModel(models(real)) === 'gemini-3.7-flash';
+})(), 'got ' + G.chooseModel(models([
+  'gemini-3.7-flash', 'gemini-3.7-flash-video-understanding-eap', 'gemini-3.6-flash', 'gemini-flash-latest'
+])));
+
+check('rejects image, tts, video and robotics variants', (function () {
+  var bad = ['gemini-3.1-flash-image', 'gemini-3.1-flash-tts-preview', 'gemini-3.7-flash-video-understanding-eap',
+    'gemini-robotics-er-2-preview', 'gemini-2.5-computer-use-preview-10-2025', 'gemma-4-31b-it',
+    'nano-banana-pro-preview', 'lyria-3-pro-preview', 'gemini-omni-flash-preview'];
+  return G.chooseModel(models(bad)) === null;
+})());
+
+check('prefers a full model over its lite sibling', (function () {
+  return G.chooseModel(models(['gemini-3.5-flash-lite', 'gemini-3.5-flash'])) === 'gemini-3.5-flash' &&
+    G.chooseModel(models(['gemini-3.7-flash-lite', 'gemini-3.5-flash'])) === 'gemini-3.5-flash';
+})());
+
+check('ranks a usable fallback behind the first choice', (function () {
+  var ranked = G.rankModels(models(['gemini-2.5-flash', 'gemini-3.7-flash', 'gemini-3.6-flash']));
+  return ranked[0] === 'gemini-3.7-flash' && ranked[1] === 'gemini-3.6-flash' && ranked.length === 3;
+})());
+
+console.log('\ntransient failures');
+[
+  'This model is currently experiencing high demand. Spikes in demand are usually temporary.',
+  'The model is overloaded. Please try again later.',
+  'Resource has been exhausted (e.g. check quota).',
+  'got 503 from upstream',
+  'request timed out'
+].forEach(function (msg) {
+  check('retryable: "' + msg.slice(0, 38) + '…"', G.isTransientFailure(msg));
+});
+[
+  'API key not valid. Please pass a valid API key.',
+  'Gemini returned malformed JSON',
+  'permission denied'
+].forEach(function (msg) {
+  check('not retryable: "' + msg.slice(0, 38) + '"', !G.isTransientFailure(msg));
+});
 
 console.log('\n' + (failures ? failures + ' FAILURE(S)' : 'all checks passed') + '\n');
 process.exit(failures ? 1 : 0);

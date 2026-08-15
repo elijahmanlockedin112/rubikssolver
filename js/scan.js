@@ -1,30 +1,27 @@
 /*
  * scan.js — read a cube's colors through the camera.
  *
- * Six captures, one per face, in a fixed order with explicit "turn the cube
- * this way" instructions so each captured grid lands on the right face of the
- * net without the user having to think about orientation.
+ * Six photos, one per face, in a fixed order with explicit "turn the cube this
+ * way" instructions so each photo lands on the right face of the net without
+ * the user having to think about orientation. Point, press, done — framing is
+ * deliberately loose, because the reader on the other end can find the cube.
  *
- * Two readers look at those photos:
- *   1. Gemini, via the local server (POST /api/scan) — the key lives on the
- *      machine running the server, never in this file.
- *   2. A built-in classifier that uses the six center stickers as reference
- *      swatches, with a nine-per-color quota.
+ * Reading is done by Gemini through the local server (POST /api/scan); the key
+ * lives on the machine running the server and never reaches this file.
  *
- * Whichever answers, Cube.validate() has the last word, and any sticker the
- * two readers disagree about is handed back for the user to confirm.
+ * If that is unavailable, a built-in classifier takes over. It is much rougher
+ * — it samples nine fixed patches from the middle of the frame, so it only
+ * works if the face happens to be square-on — which is exactly why it is a
+ * fallback and not a second opinion. Cross-checking a reliable reader against
+ * an unreliable one just produces noise.
  */
 ;(function (root) {
   'use strict';
 
-  var SIZE = 640;          // working canvas: big enough to send, small enough to be quick
-  var STEADY_MS = 650;     // hold still this long and it captures itself
-  var MOTION_THRESHOLD = 7;
+  var MAX_EDGE = 800;   // longest side of the photo we send
 
-  // Capture order. Each step says how to hold the cube so the captured grid
-  // maps straight onto that face's panel in the net.
   var STEPS = [
-    { face: 2, letter: 'F', name: 'Front', tip: 'Hold the cube with the top face up and point the FRONT face straight at the camera.' },
+    { face: 2, letter: 'F', name: 'Front', tip: 'Hold the cube with the top face up and point the FRONT face at the camera.' },
     { face: 1, letter: 'R', name: 'Right', tip: 'Keep the top up. Turn the cube a quarter turn to your LEFT so the RIGHT face now faces the camera.' },
     { face: 5, letter: 'B', name: 'Back', tip: 'Another quarter turn to your LEFT — now the BACK face faces the camera.' },
     { face: 4, letter: 'L', name: 'Left', tip: 'One more quarter turn to your LEFT — now the LEFT face faces the camera.' },
@@ -54,17 +51,6 @@
     return d > 180 ? 360 - d : d;
   }
 
-  function guessColor(rgb) {
-    var hsv = rgbToHsv(rgb[0], rgb[1], rgb[2]);
-    if (hsv.s < 0.28) return 0;
-    var best = 1, bestD = Infinity;
-    for (var i = 1; i < 6; i++) {
-      var d = hueDistance(hsv.h, IDEAL_HUE[i]);
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    return best;
-  }
-
   /**
    * Distance between two samples, tuned against synthetic bad lighting
    * (see test/scan.test.js). Brightness is deliberately ignored: each face is
@@ -74,8 +60,29 @@
   function colorCost(a, b) {
     var ha = rgbToHsv(a[0], a[1], a[2]), hb = rgbToHsv(b[0], b[1], b[2]);
     var greyness = Math.min(ha.s, hb.s);
-    var hueTerm = hueDistance(ha.h, hb.h) * Math.min(1, greyness / 0.3);
-    return hueTerm + Math.abs(ha.s - hb.s) * 55;
+    return hueDistance(ha.h, hb.h) * Math.min(1, greyness / 0.3) + Math.abs(ha.s - hb.s) * 55;
+  }
+
+  function median(list) {
+    list.sort(function (a, b) { return a - b; });
+    var mid = list.length >> 1;
+    return list.length % 2 ? list[mid] : (list[mid - 1] + list[mid]) / 2;
+  }
+
+  /** Say what actually went wrong, rather than one catch-all sentence. */
+  function cameraProblem(err) {
+    var name = err && err.name ? err.name : '';
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      return 'Camera access was blocked. Allow it for this site in your browser settings and try again — ' +
+        'on a phone the permission prompt is easy to dismiss by accident.';
+    }
+    if (name === 'NotFoundError' || name === 'OverconstrainedError' || name === 'DevicesNotFoundError') {
+      return 'No camera on this device. Try it from your phone, or fill the colors in by hand.';
+    }
+    if (name === 'NotReadableError' || name === 'TrackStartError') {
+      return 'The camera is busy — another app or tab probably has it. Close that and try again.';
+    }
+    return 'The camera would not start' + (name ? ' (' + name + ')' : '') + '. Fill the colors in by hand instead.';
   }
 
   function Scanner(opts) {
@@ -84,35 +91,22 @@
       modal: document.getElementById('scanner'),
       video: document.getElementById('scan-video'),
       canvas: document.getElementById('scan-canvas'),
+      shot: document.getElementById('scan-shot'),
       title: document.getElementById('scan-title'),
       tip: document.getElementById('scan-tip'),
       capture: document.getElementById('scan-capture'),
       undo: document.getElementById('scan-undo'),
       close: document.getElementById('scan-close'),
       message: document.getElementById('scan-message'),
-      thumbs: document.getElementById('scan-thumbs'),
-      auto: document.getElementById('scan-auto'),
-      steady: document.getElementById('scan-steady')
+      thumbs: document.getElementById('scan-thumbs')
     };
-    this.ctx = this.el.canvas.getContext('2d');
-    this.el.canvas.width = SIZE;
-    this.el.canvas.height = SIZE;
+    this.ctx = this.el.canvas.getContext('2d', { willReadFrequently: true });
 
-    // Clean copy of the frame, with none of the guide overlay drawn on it.
-    this.clean = document.createElement('canvas');
-    this.clean.width = SIZE;
-    this.clean.height = SIZE;
-    this.cleanCtx = this.clean.getContext('2d', { willReadFrequently: true });
-
-    this.samples = {};   // face -> nine [r,g,b]
+    this.samples = {};   // face -> nine [r,g,b], for the fallback reader
     this.photos = {};    // face -> base64 jpeg
     this.step = 0;
     this.stream = null;
     this.busy = false;
-    this.armed = false;
-    this.steadyFor = 0;
-    this.lastFrame = null;
-    this.lastTick = 0;
 
     var self = this;
     this.el.capture.onclick = function () { self.capture(); };
@@ -123,31 +117,32 @@
   Scanner.prototype.open = function () {
     var self = this;
     this.el.modal.hidden = false;
+    this.el.shot.hidden = true;
     this.step = 0;
     this.samples = {};
     this.photos = {};
     this.busy = false;
+    this.el.capture.disabled = true;
     this.renderStep();
     this.message('Starting the camera…');
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      this.message('This browser will not give the page a camera. Fill the colors in by hand instead.', true);
+      this.message('This page has no camera access at all — browsers only hand it over on an https:// ' +
+        'address (or localhost). See the Tailscale notes in the README, or fill the colors in by hand.', true);
       return;
     }
     navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: false
     }).then(function (stream) {
       self.stream = stream;
       self.el.video.srcObject = stream;
-      self.el.video.play();
+      return self.el.video.play();
+    }).then(function () {
+      self.el.capture.disabled = false;
       self.message('');
-      self.openedAt = performance.now();
-      self.loop();
     }).catch(function (err) {
-      self.message('No camera available (' + (err && err.name ? err.name : 'error') +
-        '). On a phone the camera needs an https address — see the Tailscale notes in the README — ' +
-        'or just fill the colors in by hand.', true);
+      self.message(cameraProblem(err), true);
     });
   };
 
@@ -156,7 +151,6 @@
       this.stream.getTracks().forEach(function (t) { t.stop(); });
       this.stream = null;
     }
-    cancelAnimationFrame(this.raf);
     this.el.modal.hidden = true;
     if (cancelled && this.opts.onCancel) this.opts.onCancel();
   };
@@ -171,7 +165,7 @@
     if (!step) return;
     this.el.title.textContent = 'Face ' + (this.step + 1) + ' of 6 — ' + step.name;
     this.el.tip.textContent = step.tip;
-    this.el.capture.textContent = 'Capture the ' + step.name.toLowerCase() + ' face';
+    this.el.capture.textContent = 'Snap the ' + step.name.toLowerCase() + ' face';
     this.el.undo.disabled = this.step === 0;
 
     var thumbs = this.el.thumbs;
@@ -184,99 +178,33 @@
     }
   };
 
-  /** Draw the center square of the video, then the guide grid on top of it. */
-  Scanner.prototype.loop = function () {
-    var self = this;
-    var v = this.el.video, ctx = this.ctx;
-    var now = performance.now();
-    var dt = this.lastTick ? now - this.lastTick : 16;
-    this.lastTick = now;
-
-    if (v.videoWidth && !this.busy) {
-      var side = Math.min(v.videoWidth, v.videoHeight);
-      var sx = (v.videoWidth - side) / 2, sy = (v.videoHeight - side) / 2;
-      this.cleanCtx.drawImage(v, sx, sy, side, side, 0, 0, SIZE, SIZE);
-      ctx.drawImage(this.clean, 0, 0);
-
-      this.trackMotion(dt);
-
-      // The nine-patch median is far too heavy to run every frame on a phone;
-      // the live dots are only a hint, so refresh them a few times a second.
-      if (!this.liveSwatches || now - (this.sampledAt || 0) > 160) {
-        this.liveSwatches = this.sample();
-        this.sampledAt = now;
-      }
-      var swatches = this.liveSwatches;
-      var cell = SIZE / 3;
-      ctx.lineWidth = 3;
-      for (var r = 0; r < 3; r++) {
-        for (var c = 0; c < 3; c++) {
-          ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-          ctx.strokeRect(c * cell + 10, r * cell + 10, cell - 20, cell - 20);
-          var guess = guessColor(swatches[r * 3 + c]);
-          ctx.fillStyle = (this.opts.palette || ['#fff', '#ff0', '#0a0', '#00f', '#f00', '#f80'])[guess];
-          ctx.beginPath();
-          ctx.arc(c * cell + cell / 2, r * cell + cell / 2, 14, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-          ctx.stroke();
-        }
-      }
-    }
-    this.raf = requestAnimationFrame(function () { self.loop(); });
+  /** Freeze the current video frame into the working canvas. */
+  Scanner.prototype.grabFrame = function () {
+    var v = this.el.video;
+    var w = v.videoWidth, h = v.videoHeight;
+    if (!w || !h) return null;
+    var scale = Math.min(1, MAX_EDGE / Math.max(w, h));
+    var cw = Math.round(w * scale), ch = Math.round(h * scale);
+    this.el.canvas.width = cw;
+    this.el.canvas.height = ch;
+    this.ctx.drawImage(v, 0, 0, cw, ch);
+    return { w: cw, h: ch };
   };
 
   /**
-   * Cheap frame-difference so the app can tell when the cube is being held
-   * still. The comparison runs on a 32x32 thumbnail — reading the full frame
-   * every tick would cost more than everything else here put together.
-   * Movement also has to reappear before auto-capture re-arms, so one steady
-   * hand does not fire two captures on the same face.
+   * Nine median-filtered patches from a centred square. Only the fallback
+   * reader uses this, and it assumes the face is roughly square-on.
    */
-  Scanner.prototype.trackMotion = function (dt) {
-    if (!this.tiny) {
-      this.tiny = document.createElement('canvas');
-      this.tiny.width = this.tiny.height = 32;
-      this.tinyCtx = this.tiny.getContext('2d', { willReadFrequently: true });
-    }
-    this.tinyCtx.drawImage(this.clean, 0, 0, 32, 32);
-    var px = this.tinyCtx.getImageData(0, 0, 32, 32).data;
-    var cur = [];
-    for (var i = 0; i < px.length; i += 4) {
-      cur.push((px[i] + px[i + 1] + px[i + 2]) / 3);
-    }
-    if (this.lastFrame && this.lastFrame.length === cur.length) {
-      var sum = 0;
-      for (var k = 0; k < cur.length; k++) sum += Math.abs(cur[k] - this.lastFrame[k]);
-      var motion = sum / cur.length;
-      if (motion > MOTION_THRESHOLD) {
-        this.armed = true;
-        this.steadyFor = 0;
-      } else {
-        this.steadyFor += dt;
-      }
-      var settled = this.steadyFor > STEADY_MS;
-      if (this.el.steady) {
-        this.el.steady.textContent = settled ? 'steady' : 'hold still…';
-        this.el.steady.className = 'scan-steady' + (settled ? ' is-steady' : '');
-      }
-      var canAuto = this.el.auto && this.el.auto.checked &&
-        this.armed && performance.now() - this.openedAt > 1500;
-      if (settled && canAuto && !this.busy) this.capture();
-    }
-    this.lastFrame = cur;
-  };
-
-  /** Median color of a patch at the middle of each of the nine cells. */
-  Scanner.prototype.sample = function () {
-    var cell = SIZE / 3, patch = Math.round(cell * 0.34);
+  Scanner.prototype.sampleFrame = function (size) {
+    var side = Math.min(size.w, size.h) * 0.62;
+    var x0 = (size.w - side) / 2, y0 = (size.h - side) / 2;
+    var cell = side / 3, patch = Math.max(4, Math.round(cell * 0.34));
     var out = [];
     for (var r = 0; r < 3; r++) {
       for (var c = 0; c < 3; c++) {
-        var x = Math.round(c * cell + cell / 2 - patch / 2);
-        var y = Math.round(r * cell + cell / 2 - patch / 2);
-        var data = this.cleanCtx.getImageData(x, y, patch, patch).data;
-        // medians shrug off a single glare spot or a black grid line
+        var x = Math.round(x0 + c * cell + cell / 2 - patch / 2);
+        var y = Math.round(y0 + r * cell + cell / 2 - patch / 2);
+        var data = this.ctx.getImageData(x, y, patch, patch).data;
         var rs = [], gs = [], bs = [];
         for (var i = 0; i < data.length; i += 4) { rs.push(data[i]); gs.push(data[i + 1]); bs.push(data[i + 2]); }
         out.push([median(rs), median(gs), median(bs)]);
@@ -285,23 +213,22 @@
     return out;
   };
 
-  function median(list) {
-    list.sort(function (a, b) { return a - b; });
-    var mid = list.length >> 1;
-    return list.length % 2 ? list[mid] : (list[mid - 1] + list[mid]) / 2;
-  }
-
   Scanner.prototype.capture = function () {
-    if (!this.stream || this.busy) { return; }
+    if (!this.stream || this.busy) return;
+    var size = this.grabFrame();
+    if (!size) { this.message('The camera is not ready yet.', true); return; }
+
     var step = STEPS[this.step];
-    this.samples[step.face] = this.sample();
-    this.photos[step.face] = this.clean.toDataURL('image/jpeg', 0.86).split(',')[1];
+    this.samples[step.face] = this.sampleFrame(size);
+    this.photos[step.face] = this.el.canvas.toDataURL('image/jpeg', 0.86).split(',')[1];
+
+    this.el.shot.src = 'data:image/jpeg;base64,' + this.photos[step.face];
+    this.el.shot.hidden = false;
+
     this.step++;
-    this.armed = false;
-    this.steadyFor = 0;
     if (this.step >= STEPS.length) { this.finish(); return; }
     this.renderStep();
-    this.message('Got the ' + step.name.toLowerCase() + ' face.');
+    this.message('Got the ' + step.name.toLowerCase() + ' face. Blurry? Hit "Redo last".');
   };
 
   Scanner.prototype.undo = function () {
@@ -309,18 +236,21 @@
     this.step--;
     delete this.samples[STEPS[this.step].face];
     delete this.photos[STEPS[this.step].face];
-    this.armed = false;
+    var previous = this.step > 0 ? this.photos[STEPS[this.step - 1].face] : null;
+    if (previous) this.el.shot.src = 'data:image/jpeg;base64,' + previous;
+    this.el.shot.hidden = !previous;
     this.renderStep();
     this.message('');
   };
 
   Scanner.prototype.finish = function () {
     var self = this;
-    var local = classify(this.samples);
     this.busy = true;
     this.el.capture.disabled = true;
     this.el.undo.disabled = true;
-    this.message('Reading the colors…');
+    this.el.title.textContent = 'Reading the colors…';
+    this.el.tip.textContent = 'Sending the six photos off to be read. This takes a few seconds.';
+    this.message('');
 
     var body = {
       images: STEPS.map(function (s) {
@@ -329,7 +259,7 @@
     };
 
     var timeout = new Promise(function (_, reject) {
-      setTimeout(function () { reject(new Error('timed out')); }, 30000);
+      setTimeout(function () { reject(new Error('timed out')); }, 45000);
     });
 
     Promise.race([
@@ -343,24 +273,23 @@
       timeout
     ]).then(function (out) {
       if (!out.ok || !out.json || !Array.isArray(out.json.colors)) {
-        var why = out.json && out.json.message ? out.json.message : 'the scan service said no';
-        return { colors: local, unsure: [], source: 'local', note: why };
+        var why = out.json && out.json.message ? out.json.message : 'the reader was unreachable';
+        return { colors: classify(self.samples), unsure: [], source: 'local', note: why };
       }
-      var colors = Int8Array.from(out.json.colors);
-      var unsure = {};
-      (out.json.uncertain || []).forEach(function (i) { unsure[i] = true; });
-      for (var i = 0; i < 54; i++) if (colors[i] !== local[i]) unsure[i] = true;
       return {
-        colors: colors,
-        unsure: Object.keys(unsure).map(Number),
+        colors: Int8Array.from(out.json.colors),
+        unsure: out.json.uncertain || [],
         source: 'gemini',
         note: out.json.warning || null
       };
-    }).catch(function () {
-      return { colors: local, unsure: [], source: 'local', note: 'could not reach the scan service' };
+    }).catch(function (err) {
+      return {
+        colors: classify(self.samples), unsure: [], source: 'local',
+        note: err && err.message ? err.message : 'the reader was unreachable'
+      };
     }).then(function (result) {
-      self.el.capture.disabled = false;
       self.busy = false;
+      self.el.capture.disabled = false;
       self.close(false);
       if (self.opts.onDone) self.opts.onDone(result);
     });
@@ -370,6 +299,7 @@
    * Fallback reader. Names the six centers, forcing six different names, then
    * matches every sticker to the center it looks most like, with a
    * nine-per-color quota so one bad guess cannot take over a color.
+   * Only as good as the framing — see the note at the top of this file.
    */
   function classify(samples) {
     var centers = [];
@@ -418,7 +348,7 @@
   }
 
   Scanner.classify = classify;   // exposed for tests
-  Scanner.guessColor = guessColor;
+  Scanner.STEPS = STEPS;
 
   root.CubeScanner = Scanner;
   if (typeof module === 'object' && module.exports) module.exports = Scanner;

@@ -62,19 +62,25 @@ which models exist and picks a current vision-capable one, so nothing here
 breaks when model names change. With no key present, `/api/scan` returns 501 and
 the app silently uses the built-in reader instead.
 
-**Both readers always run.** All six photos go to Gemini in a single request, so
-it can compare colors across faces rather than judging each in isolation — which
-is exactly what red-versus-orange needs. The local classifier reads the same
-photos independently. Then:
+Point the face at the camera and press the button — angle, distance and framing
+are all loose, because the reader on the other end can find the cube in the
+photo. All six photos go up in a single request, so the model can compare colors
+across faces rather than judging each in isolation, which is exactly what
+red-versus-orange needs.
 
 - `Cube.validate()` decides whether the answer is a physically possible cube. If
   it isn't, the specific complaint ("that is not a physically possible cube:
   one edge is flipped in place") goes back to the model and it tries again,
   twice at most.
-- Any sticker the two readers disagree about, plus anything the model itself
-  flagged as uncertain, gets outlined on the map for you to confirm.
+- Whatever the model itself flags as uncertain gets outlined on the map.
+- The newest model is also the busiest, so a "high demand" failure is retried
+  and then falls back to the next model down the ranking.
 
-Neither reader has to be perfect. They just have to be wrong in different places.
+The built-in classifier is **only** a fallback for when the server or the API is
+unreachable. It is not used as a second opinion, because it samples nine fixed
+patches from the middle of the frame — so unless the face happens to be square-on
+it disagrees constantly, and cross-checking a reliable reader against an
+unreliable one produces noise, not signal.
 
 ## What's inside
 
@@ -128,7 +134,11 @@ node test/solver.test.js 1000
 - `test/solver.test.js` — move engine identities, the properties each
   beginner-method algorithm is relied on for, the validator, and full solves.
 - `test/gemini.test.js` — fabricated model responses through the real parse,
-  validate, cross-check and model-selection paths. No key, no network.
+  validate and model-selection paths. No key, no network.
+- `test/gemini-live.test.js` — renders six synthetic photos of a known cube,
+  sends them through the real endpoint, and checks all 54 stickers come back
+  right. Proves prompt, face order and sticker order line up end to end.
+  Skips itself when the server is down or has no key; costs one API call.
 - `test/scan.test.js` — feeds the classifier synthetic camera samples under
   tinted, uneven, noisy light and checks the cube comes back intact.
 

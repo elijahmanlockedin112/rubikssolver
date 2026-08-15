@@ -144,26 +144,23 @@
   <div class="modal-card">
     <h2 id="scan-title">Face 1 of 6 — Front</h2>
     <p id="scan-tip" class="hint"></p>
-    <video id="scan-video" playsinline muted hidden></video>
     <div class="scan-stage">
-      <canvas id="scan-canvas" class="scan-canvas"></canvas>
-      <span id="scan-steady" class="scan-steady">hold still…</span>
+      <video id="scan-video" playsinline muted autoplay></video>
+      <div class="scan-guide" aria-hidden="true"></div>
+      <img id="scan-shot" class="scan-shot" alt="last photo taken" hidden>
     </div>
     <div id="scan-thumbs" class="scan-thumbs"></div>
-    <label class="toggle toggle-center">
-      <input type="checkbox" id="scan-auto" checked>
-      <span>Capture on its own once the cube is steady</span>
-    </label>
-    <div class="row-buttons">
-      <button id="scan-capture" class="btn btn-primary">Capture</button>
+    <div class="row-buttons scan-buttons">
+      <button id="scan-capture" class="btn btn-primary btn-snap">Snap</button>
       <button id="scan-undo" class="btn">Redo last</button>
       <button id="scan-close" class="btn btn-ghost">Cancel</button>
     </div>
     <p id="scan-message" class="message"></p>
     <p class="caption">
-      Roughly fill the square with one face — it does not have to be exact.
-      Anything the two readers disagree about gets flagged on the map afterwards.
+      Get the face somewhere in the frame — angle and distance don't matter much.
+      Just make sure it's the only cube face pointing at the camera.
     </p>
+    <canvas id="scan-canvas" hidden></canvas>
   </div>
 </div>
 

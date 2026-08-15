@@ -528,19 +528,21 @@
           var solverState = Cube.toSolverSpace(colorState);
           var verdict = solverState ? Cube.validate(solverState) : { ok: false, message: 'The six centers came out the same color.' };
           var flagged = Object.keys(unsure).length;
-          var reader = result.source === 'gemini' ? 'Gemini' : 'the built-in reader';
+          var viaGemini = result.source === 'gemini';
 
           if (!verdict.ok) {
-            setMessage('Scanned with ' + reader + ', but it is not a valid cube yet — ' +
-              verdict.message.charAt(0).toLowerCase() + verdict.message.slice(1) +
-              ' Fix the wrong stickers on the map.', 'error');
+            setMessage((viaGemini ? 'Read by Gemini' : 'Read by the built-in reader') +
+              ', but it is not a valid cube yet — ' + verdict.message.charAt(0).toLowerCase() +
+              verdict.message.slice(1) + ' Fix the wrong stickers on the map.', 'error');
+          } else if (!viaGemini) {
+            setMessage('Gemini was not reachable, so the rough built-in reader had a go — it only ' +
+              'works when the face is square-on to the camera, so check the map carefully before solving.', 'error');
           } else if (flagged) {
-            setMessage('Scanned with ' + reader + '. ' + flagged + ' sticker' + (flagged === 1 ? '' : 's') +
-              ' the two readers disagreed about ' + (flagged === 1 ? 'is' : 'are') +
-              ' outlined below — check those, then solve.', 'ok');
+            setMessage('Read by Gemini. It was unsure about ' + flagged + ' sticker' +
+              (flagged === 1 ? '' : 's') + ', outlined below — check ' +
+              (flagged === 1 ? 'it' : 'those') + ', then solve.', 'ok');
           } else {
-            setMessage('Scanned with ' + reader + ' and both readers agreed on all 54 stickers. ' +
-              'Give the map a quick look, then solve.', 'ok');
+            setMessage('Read by Gemini, and it came out a valid cube. Give the map a quick look, then solve.', 'ok');
           }
           if (result.note) console.info('scan note:', result.note);
         }

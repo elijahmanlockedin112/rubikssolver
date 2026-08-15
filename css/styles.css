@@ -265,11 +265,30 @@ h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: 
 }
 .modal-card h2 { font-size: 1.05rem; text-transform: none; letter-spacing: 0; color: var(--text); margin-bottom: 6px; }
 .modal-small { width: min(380px, 100%); text-align: center; }
-.scan-canvas {
-  width: 100%; max-width: 360px; aspect-ratio: 1/1;
-  display: block; margin: 0 auto;
-  border-radius: 12px; border: 1px solid var(--line); background: #0b0d12;
+.scan-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #0b0d12;
+  overflow: hidden;
 }
+#scan-video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.scan-guide {
+  position: absolute; inset: 9% 14%;
+  border: 2px dashed rgba(255, 255, 255, 0.32);
+  border-radius: 16px;
+  pointer-events: none;
+}
+.scan-shot {
+  position: absolute; right: 8px; bottom: 8px;
+  width: 26%; border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+.scan-buttons { justify-content: center; }
+.btn-snap { min-width: 190px; font-size: 1rem; padding: 13px 20px; }
 .scan-thumbs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 12px 0 4px; }
 .scan-dot {
   font-size: 0.72rem; padding: 3px 9px; border-radius: 999px;
@@ -278,17 +297,7 @@ h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .scan-dot.is-done { border-color: var(--accent-2); color: var(--accent-2); }
 .scan-dot.is-current { border-color: var(--accent); color: var(--text); background: rgba(76,141,255,0.14); }
 
-.scan-stage { position: relative; }
-.scan-steady {
-  position: absolute; left: 50%; transform: translateX(-50%); bottom: 8px;
-  font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 4px 12px; border-radius: 999px;
-  background: rgba(8, 10, 14, 0.78); border: 1px solid var(--line); color: var(--text-dim);
-}
-.scan-steady.is-steady { border-color: var(--accent-2); color: var(--accent-2); }
-.toggle-center { justify-content: center; margin: 8px 0 2px; }
-
-/* stickers the two scan readers disagreed about */
+/* stickers the reader flagged as uncertain */
 .sticker.is-unsure {
   box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 4px var(--accent);
   animation: unsure-pulse 1.6s ease-in-out infinite;

@@ -4,7 +4,8 @@
   "description": "Enter your Rubik's cube colors (or scan them) and follow an animated 3D solution, turn by turn.",
   "main": "js/cube.js",
   "scripts": {
-    "test": "node test/solver.test.js 300 && node test/kociemba.test.js 60 && node test/scan.test.js && node test/gemini.test.js",
+    "test": "node test/solver.test.js 300 && node test/kociemba.test.js 60 && node test/scan.test.js && node test/gemini.test.js && node test/gemini-live.test.js",
+    "test:live": "node test/gemini-live.test.js",
     "test:solver": "node test/solver.test.js 1000",
     "test:fast": "node test/kociemba.test.js 200",
     "test:scan": "node test/scan.test.js",
