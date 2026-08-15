@@ -172,6 +172,22 @@
     return null;
   };
 
+  /**
+   * What to say when the wanted size was not found but another size was.
+   *
+   * Only a BIGGER grid is evidence of anything. A smaller one fits inside a
+   * bigger one — any three-by-three block of a 4x4 is a valid 3x3 lattice — so
+   * finding a 3x3 while looking for a 4x4 says nothing about which cube is
+   * being held, and announcing "that is a 3x3" at someone holding a 4x4 is
+   * simply a confident falsehood. In that direction the honest report is that
+   * the 4x4 could not be read, and why.
+   */
+  Scanner.prototype.wrongSizeMessage = function (wanted) {
+    if (!this.sawInstead || this.sawInstead < wanted) return null;
+    return 'That is a ' + this.sawInstead + '×' + this.sawInstead + ' face, and you are scanning ' +
+      'a ' + wanted + '×' + wanted + '. Change the size above, or show me the right cube.';
+  };
+
   /** Say what it can see right now, so the lock is obvious before pressing. */
   Scanner.prototype.showSize = function () {
     if (this.busy) return;
@@ -182,12 +198,9 @@
 
     if (size) {
       this.message(size + '×' + size + ' face found — ' + this.locked.points.length + ' stickers.', false);
-    } else if (this.sawInstead) {
-      var wanted = this.size || this.opts.size;
-      this.message('That looks like a ' + this.sawInstead + '×' + this.sawInstead + ' face, but you are ' +
-        'scanning a ' + wanted + '×' + wanted + '. Change the size above, or show me the right cube.', true);
     } else {
-      this.message('');
+      var wrong = this.wrongSizeMessage(this.size || this.opts.size);
+      this.message(wrong || '', !!wrong);
     }
   };
 
@@ -247,11 +260,8 @@
     var found = this.look(frame);
     if (!found || found.failed) {
       var wanted = this.size || this.opts.size || 3;
-      if (this.sawInstead) {
-        this.message('That is a ' + this.sawInstead + '×' + this.sawInstead + ' face, and you are scanning ' +
-          'a ' + wanted + '×' + wanted + '. Change the size above, or show me the right cube.', true);
-        return;
-      }
+      var wrong = this.wrongSizeMessage(wanted);
+      if (wrong) { this.message(wrong, true); return; }
       var why = CubeDetect.detectFace(frame, { size: wanted, debug: true });
       this.reportMiss(frame, why && why.debug);
       return;

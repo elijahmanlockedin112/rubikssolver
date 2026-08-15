@@ -133,10 +133,86 @@
       }
       blobs.push({
         area: area, cx: sumX / area, cy: sumY / area,
+        x0: minX, y0: minY,
         w: maxX - minX + 1, h: maxY - minY + 1
       });
     }
     return blobs;
+  }
+
+  /**
+   * Split blobs that are really a row of cells stuck together.
+   *
+   * Two neighbouring pieces of the SAME colour have almost nothing between them
+   * on a stickerless cube — a hairline seam that survives neither the downscale
+   * nor the gradient threshold — so they come out of findBlobs as one patch.
+   * Measured on a real 4x4 (testdata, 17-05-42): five cells segmented cleanly
+   * and the other eleven arrived as five merged runs — one of three cells and
+   * four of two. That left eight candidates where sixteen were wanted, the 4x4
+   * pass gave up, and the 3x3 that fits inside any 4x4 was found instead. This
+   * is the whole reason a 4x4 kept being read as a 3x3, and raising the working
+   * resolution does not help: at every size from 260 to 640 the same pieces
+   * stayed merged.
+   *
+   * A merged run is recognisable. It is solidly filled, and its bounding box is
+   * a whole number of cell pitches long. The pitch is taken from the SHORT side
+   * of each solid patch, which merging along a row does not change — a 3-wide
+   * run of 32px cells measures 96x32, and 32 is still the pitch.
+   *
+   * This only ever PROPOSES cells. The lattice fit and the flatness check are
+   * still what decide whether a cube face is there, so a wrong split fails to
+   * match rather than inventing a reading.
+   */
+  function splitMergedRuns(blobs, N) {
+    // Slivers and ragged background blobs must not vote on the pitch: a 28x1
+    // scanline is "100% filled" and would drag the median to nothing.
+    var solid = blobs.filter(function (b) {
+      return b.area >= 14 && Math.min(b.w, b.h) >= 4 && b.area / (b.w * b.h) >= 0.62;
+    });
+    if (solid.length < 3) return blobs;
+
+    function medianShortSide(list) {
+      var s = list.map(function (b) { return Math.min(b.w, b.h); })
+        .sort(function (a, b) { return a - b; });
+      return s[s.length >> 1];
+    }
+
+    var pitch = medianShortSide(solid);
+    if (pitch < 5) return blobs;
+    // Re-measure using only the patches that pitch says are a single cell, so a
+    // frame where several cells merged in BOTH directions still lands on the
+    // true pitch rather than one inflated by the 2x2 blocks.
+    var singles = solid.filter(function (b) {
+      return Math.max(b.w, b.h) < pitch * 1.5;
+    });
+    if (singles.length >= 3) pitch = medianShortSide(singles);
+    if (pitch < 5) return blobs;
+
+    var out = [];
+    blobs.forEach(function (b) {
+      var cols = Math.round(b.w / pitch), rows = Math.round(b.h / pitch);
+      var fill = b.area / (b.w * b.h);
+      var splittable = fill >= 0.72 &&
+        cols >= 1 && rows >= 1 && cols <= N && rows <= N && (cols > 1 || rows > 1) &&
+        // the box has to actually BE that many cells long, not merely round to it
+        Math.abs(b.w - cols * pitch) <= pitch * 0.34 &&
+        Math.abs(b.h - rows * pitch) <= pitch * 0.34;
+      if (!splittable) { out.push(b); return; }
+
+      for (var r = 0; r < rows; r++) {
+        for (var c = 0; c < cols; c++) {
+          out.push({
+            area: b.area / (cols * rows),
+            cx: b.x0 + b.w * (c + 0.5) / cols,
+            cy: b.y0 + b.h * (r + 0.5) / rows,
+            x0: b.x0 + b.w * c / cols, y0: b.y0 + b.h * r / rows,
+            w: b.w / cols, h: b.h / rows,
+            split: true
+          });
+        }
+      }
+    });
+    return out;
   }
 
   function plausibleStickers(blobs, w, h) {
@@ -218,6 +294,15 @@
 
         var wx = -vy, wy = vx;                                 // a quarter turn, fixed handedness
 
+        // The cells of one face are all about the same size, so only blobs that
+        // agree with the seed pair may fill a slot. Position alone is not
+        // enough: on a high-resolution copy a noisy frame breaks into hundreds
+        // of specks, and four of them landing near grid points was enough to
+        // build a 16-slot lattice out of a 9-cell face — a 3x3 read as a 4x4,
+        // which is precisely the confusion the size check exists to prevent.
+        var seedArea = (a.area + b.area) / 2;
+        var minArea = seedArea * 0.4, maxArea = seedArea * 2.5;
+
         for (var originCell = 0; originCell < cellCount; originCell++) {
           var r0 = (originCell / N) | 0, c0 = originCell % N;
           var ox = a.cx - c0 * vx - r0 * wx;
@@ -231,6 +316,7 @@
               var bestK = -1, bestD = len * 0.38;
               for (var k = 0; k < cells.length; k++) {
                 if (used[k]) continue;
+                if (cells[k].area < minArea || cells[k].area > maxArea) continue;
                 var d = Math.hypot(cells[k].cx - px, cells[k].cy - py);
                 if (d < bestD) { bestD = d; bestK = k; }
               }
@@ -246,7 +332,8 @@
           var tilt = Math.abs(Math.atan2(vy, vx));
           var score = matched * 1000 - error - tilt * 60;
           if (!best || score > best.score) {
-            best = { ox: ox, oy: oy, vx: vx, vy: vy, wx: wx, wy: wy, matched: matched, score: score, step: len, N: N };
+            best = { ox: ox, oy: oy, vx: vx, vy: vy, wx: wx, wy: wy, matched: matched, score: score, step: len, N: N,
+              minArea: minArea, maxArea: maxArea };
           }
         }
       }
@@ -267,6 +354,10 @@
         var py = lattice.oy + c * lattice.vy + r * lattice.wy;
         var bestK = -1, bestD = lattice.step * 0.42;
         for (var k = 0; k < cells.length; k++) {
+          // same size agreement as the hypothesis, so re-fitting cannot pull in
+          // a speck the hypothesis was careful to leave out
+          if (lattice.minArea !== undefined &&
+              (cells[k].area < lattice.minArea || cells[k].area > lattice.maxArea)) continue;
           var d = Math.hypot(cells[k].cx - px, cells[k].cy - py);
           if (d < bestD) { bestD = d; bestK = k; }
         }
@@ -523,12 +614,8 @@
 
   // ---- the whole thing ----------------------------------------------------
 
-  /**
-   * img: { data: Uint8ClampedArray RGBA, width, height } — an ImageData works.
-   * Returns { samples: [9 x [r,g,b]], points: [9 x {x,y}], quad: [4 x {x,y}],
-   *           found: how many of the nine were actually segmented } or null.
-   */
-  function detectFace(img, opts) {
+  /** One attempt, at one working resolution. detectFace tries several. */
+  function detectAtScale(img, opts) {
     opts = opts || {};
     var N = opts.size || 3;
     var debug = opts.debug ? { stage: 'start', size: N } : null;
@@ -548,9 +635,11 @@
     }
 
     var blobs = findBlobs(mask, small.width, small.height);
-    var candidates = plausibleStickers(blobs, small.width, small.height);
+    var pieces = splitMergedRuns(blobs, N);
+    var candidates = plausibleStickers(pieces, small.width, small.height);
     if (debug) {
       debug.frame = small.width + 'x' + small.height;
+      debug.merged = pieces.length - blobs.length;
       debug.brightnessCut = cut;
       debug.edgeCut = gradCut;
       debug.blobs = blobs.length;
@@ -638,7 +727,9 @@
     for (var i = 0; i < mask.length; i++) mask[i] = (v[i] > cut && grad[i] < gradCut) ? 1 : 0;
 
     var kept = {};
-    plausibleStickers(findBlobs(mask, small.width, small.height), small.width, small.height)
+    var N = opts.size || 4;
+    plausibleStickers(splitMergedRuns(findBlobs(mask, small.width, small.height), N),
+      small.width, small.height)
       .forEach(function (b) { kept[Math.round(b.cx) + ',' + Math.round(b.cy)] = b; });
 
     var rgb = Buffer.alloc(small.width * small.height * 3);
@@ -658,6 +749,60 @@
       }
     });
     return { width: small.width, height: small.height, rgb: rgb };
+  }
+
+  /**
+   * The working resolutions to try, in order.
+   *
+   * A 4x4 packs sixteen cells into the same face a 3x3 fits nine into, so at a
+   * fixed working size its seams are barely more than half as wide — and a seam
+   * that lands under about two pixels is gone. Hence a bigger copy for the
+   * bigger cubes.
+   *
+   * These are measured on the eight real frames in testdata/, not chosen. Every
+   * resolution from 260 to 620 in steps of 20 was scored on whether each frame
+   * read at its true size:
+   *
+   *   - 380-420 is the only band where all eight read correctly; 400 is its
+   *     middle, so that is the first rung.
+   *   - Results either side are not monotonic — one frame reads at 280, misses
+   *     through the 300s, and reads again from 380 — so a single resolution sits
+   *     too close to an edge. The lower rungs cost nothing when the first works,
+   *     and rescue a frame that happens to fall in a bad spot.
+   *   - From 600 up, background texture starts breaking into sticker-sized
+   *     blobs and 3x3 frames get read as 4x4. That is the ceiling, and 400
+   *     leaves 200px of headroom under it.
+   *
+   * Worst case (nothing found at any rung) measured 9.9ms per frame; a hit on
+   * the first rung is 5.3ms, the same as a single pass.
+   */
+  function scaleLadder(N) {
+    return N >= 4 ? [400, 320, 260] : [WORK_SIZE, 340];
+  }
+
+  /**
+   * img: { data: Uint8ClampedArray RGBA, width, height } — an ImageData works.
+   * Returns { samples: [N*N x [r,g,b]], points: [N*N x {x,y}], quad: [4 x {x,y}],
+   *           found: how many were actually segmented } or null.
+   */
+  function detectFace(img, opts) {
+    opts = opts || {};
+    if (opts.workSize) return detectAtScale(img, opts);
+
+    var ladder = scaleLadder(opts.size || 3);
+    var lastFailure = null;
+    for (var i = 0; i < ladder.length; i++) {
+      var found = detectAtScale(img, {
+        size: opts.size, debug: opts.debug, darkest: opts.darkest, edge: opts.edge,
+        workSize: ladder[i]
+      });
+      if (found && !found.failed) return found;
+      if (found) lastFailure = found;
+    }
+    // Report the closest attempt, so the diagnostics say how far it got rather
+    // than only how far the last and largest copy got.
+    if (lastFailure && lastFailure.debug) lastFailure.debug.triedScales = ladder;
+    return lastFailure;
   }
 
   /**
@@ -685,6 +830,7 @@
     debugMask: typeof Buffer === 'undefined' ? null : debugMask,
     _internals: {
       downscale: downscale, otsu: otsu, findBlobs: findBlobs,
+      splitMergedRuns: splitMergedRuns,
       fitGrid: fitGrid, splitIntoThree: splitIntoThree, latticeAngle: latticeAngle
     }
   };

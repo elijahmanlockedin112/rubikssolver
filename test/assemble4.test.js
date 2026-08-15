@@ -144,20 +144,42 @@ check('a miscounted colour is refused with a reason', (function () {
   return !out.ok && /do not add up/.test(out.message);
 })());
 
-check('two stickers swapped between faces is refused', (function () {
-  var refused = 0, total = 20;
-  for (var t = 0; t < total; t++) {
+/*
+ * Corrupting a reading must never produce a confident answer.
+ *
+ * Two figures, because they are not the same promise. "Never confidently
+ * wrong" is the one that matters and it is absolute: an impossible cube gets
+ * refused, or at worst accepted with the ambiguous flag set, but it never
+ * comes back as a cube the user is told to go and turn. "Refused outright" is
+ * a quality figure, and it gets a bar with room under it.
+ *
+ * Measured over 4,987 corrupted cubes: 4,987 refused (100.0%), 0 accepted as
+ * ambiguous, 0 confidently wrong. The bar below sits at 90%.
+ *
+ * The count here used to decrement `total` on a skipped trial, which shortened
+ * the loop as well as the denominator: with k skips the best score possible was
+ * (20-2k)/(20-k), so k=3 could not beat 0.82 and k=4 could not beat 0.75. It
+ * failed about half of all runs against a 0.8 bar while the code underneath was
+ * refusing every single corrupted cube.
+ */
+check('two stickers swapped between faces is never confidently answered', (function () {
+  var refused = 0, flagged = 0, confident = 0, attempted = 0;
+  for (var t = 0; t < 20; t++) {
     var truth = randomCube();
     var shot = photograph(truth, { order: [0, 1, 2, 3, 4, 5], turns: [0, 0, 0, 0, 0, 0] });
     // swap a corner sticker with a centre sticker of a different colour
     var a = shot.captures[0][0], b = shot.captures[1][5];
-    if (a === b) { total--; continue; }
+    if (a === b) continue;               // nothing was corrupted, so nothing to catch
     shot.captures[0][0] = b; shot.captures[1][5] = a;
+    attempted++;
     var out = A4.assemble(shot.captures, N);
     if (!out.ok) refused++;
+    else if (out.ambiguous) flagged++;
+    else confident++;
   }
-  console.log('    refused ' + refused + '/' + total);
-  return refused >= total * 0.8;
+  console.log('    refused ' + refused + '/' + attempted +
+    ', flagged ' + flagged + ', confidently answered ' + confident);
+  return attempted > 0 && confident === 0 && refused >= attempted * 0.9;
 })());
 
 console.log('\n' + (failures ? failures + ' FAILURE(S)' : 'all checks passed') + '\n');
