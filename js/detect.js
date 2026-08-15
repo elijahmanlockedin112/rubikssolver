@@ -167,6 +167,22 @@
    * same way, so the result can come out rotated but never mirrored — and a
    * rotation is something the assembly step already knows how to undo.
    */
+  /**
+   * How much of the grid has to actually be there.
+   *
+   * 3x3 keeps its long-standing 6 of 9: a couple of stickers can be lost to
+   * glare or merged into a neighbour and it should still lock on.
+   *
+   * Bigger sizes are held to a much higher share, and not for their own sake —
+   * it is what keeps auto-detection honest. A 3x3 face only has nine blobs, so
+   * demanding 13 of 16 means a 3x3 cannot be dressed up as a 4x4 by roping in
+   * a few lucky background blobs. Relaxing this is what made a 3x3 occasionally
+   * read as a 4x4.
+   */
+  function minimumMatch(N) {
+    return N === 3 ? 6 : Math.ceil(N * N * 0.8);
+  }
+
   /** For each blob, the handful of blobs nearest it. */
   function nearestNeighbours(cells, k) {
     return cells.map(function (a, i) {
@@ -221,9 +237,7 @@
               if (bestK >= 0) { used[bestK] = true; matched++; error += bestD; }
             }
           }
-          // enough of the grid has to be there, with a little slack for a
-          // sticker lost to glare or a shadow
-          if (matched < Math.max(6, Math.ceil(cellCount * 0.7))) continue;
+          if (matched < minimumMatch(N)) continue;
 
           // Prefer more matches, then a tighter fit, then the most upright
           // grid. Measured from "pointing right", NOT folded to the nearest
@@ -259,7 +273,7 @@
         if (bestK >= 0) points.push({ row: r, col: c, x: cells[bestK].cx, y: cells[bestK].cy });
       }
     }
-    if (points.length < Math.max(6, Math.ceil(N * N * 0.6))) return null;
+    if (points.length < minimumMatch(N)) return null;
     var fit = fitAffine(points);
     if (!fit) return null;
 
@@ -543,7 +557,7 @@
       debug.candidates = candidates.length;
       debug.candidateAreas = candidates.map(function (c) { return Math.round(c.area); }).sort(function (a, b) { return b - a; }).slice(0, 12);
     }
-    var needed = Math.max(6, Math.ceil(N * N * 0.7));
+    var needed = minimumMatch(N);
     if (candidates.length < needed) {
       if (debug) { debug.stage = 'too few sticker-shaped patches (needs ' + needed + ')'; return { failed: true, debug: debug }; }
       return null;
