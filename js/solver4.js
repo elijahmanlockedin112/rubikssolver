@@ -384,60 +384,325 @@
   }, []);
 
   /*
-   * Pairing is NOT finished, and deliberately has no half-working version here.
+   * Pairing the edges.
    *
-   * What is settled, by measurement rather than argument:
+   * The centres cannot help here and the search that solved them cannot be
+   * reused: a projection is only valid when its slots are closed under the
+   * moves, and "the centres, the edges already paired, and the one being
+   * built" is not — a move carries a tracked facelet to an untracked one and
+   * the search quietly returns nonsense. Closing it means taking all 48 edge
+   * facelets, and then the goal stops being a single state, which is exactly
+   * what a meet-in-the-middle search needs. So pairing is done by algorithm.
    *
-   *   - Outer face turns are free. They keep solid centres solid, and they map
-   *     an edge’s pair of wing slots onto another edge’s pair, so they can
-   *     never break a pair that is already made. Every setup move can be one.
-   *   - Only a slice can create a new pair, and a slice on its own wrecks the
-   *     centres. A slice sandwich "s A s'" puts them back exactly when A turns
-   *     each side face a net whole turn: "R U R' F R' F' R" has R +1-1-1+1 and
-   *     F +1-1, which is why the textbook "u' R U R' F R' F' R u" is safe and
-   *     "u R2 u'" is not. Both were checked in the model, not assumed.
-   *   - Searching for the pairs the way the centres were searched does not
-   *     work, and the reason is worth writing down so it is not tried twice: a
-   *     projection is only valid when its slots are closed under the moves. Any
-   *     set of “the centres, the edges already paired, and the one being built”
-   *     is not closed, because a move carries a tracked facelet to an untracked
-   *     one. Closing it means taking all 48 edge facelets, and then the goal
-   *     stops being a single state — which is exactly what meet-in-the-middle
-   *     needs. Pairing has to be done by algorithm, not by search.
-   *   - A usable algorithm exists: "U2 r l' U2 l r'" leaves the centres solid,
-   *     moves no corner at all, and disturbs only six wings. Found by sweeping
-   *     all 1116 x 1116 commutators [A,B] with A and B up to two moves; nothing
-   *     touching fewer than six wings exists in that family.
+   * Two facts make it simple. Outer face turns are free: they keep solid
+   * centres solid, and they carry an edge's pair of wing slots onto another
+   * edge's pair, so they can never break a pair already made. And a slice
+   * sandwich — slice out, a few outer turns, slice back — puts the centres
+   * back exactly when the inner block turns each side face a net whole turn.
    *
-   * What is left is the bookkeeping the textbook method needs: keeping finished
-   * pairs out of the slice being worked, and the last few edges, which need
-   * their own case. Until that is written and tested, solve() refuses.
+   * So: climb. Try every outer-turn setup against every sandwich, and keep
+   * whichever pairs the most edges. Setups do the aiming, the sandwich does
+   * the work, and the centres are safe throughout by construction.
    */
+
+  var SLICE_LETTERS = ['u', 'd', 'r', 'l', 'f', 'b'];
+
+  /** Outer-turn setups: nothing, one turn, or two on different faces. */
+  var SETUPS = (function () {
+    var out = [[]];
+    OUTER.forEach(function (a) {
+      out.push([a]);
+      OUTER.forEach(function (b) { if (b[0] !== a[0]) out.push([a, b]); });
+    });
+    return out;
+  })();
+
+  /**
+   * The sandwiches, checked in the model rather than argued from the notation.
+   *
+   * Only the ones that leave every centre solid are kept — which is the whole
+   * safety property this stage rests on, so it is verified here at load rather
+   * than assumed from the net-whole-turn rule that predicts it.
+   */
+  var SANDWICHES = (function () {
+    var inner = ["R U R'", "R U' R'", "F U F'", "F U' F'"];
+    var out = [];
+    SLICE_LETTERS.forEach(function (letter) {
+      [letter, letter + "'"].forEach(function (slice) {
+        inner.forEach(function (block) {
+          var seq = [slice].concat(block.split(' '), [inverseOf(slice)]);
+          var after = cube.applySeq(cube.SOLVED, seq);
+          if (!centresSolved(after)) return;          // must not disturb the centres
+          if (allEdgesPaired(after)) return;          // and must actually move wings
+          out.push(seq);
+        });
+      });
+    });
+    return out;
+  })();
+
+  function pairedCount(state) {
+    var n = 0;
+    for (var i = 0; i < EDGE_SLOTS.length; i++) if (edgePaired(state, EDGE_SLOTS[i])) n++;
+    return n;
+  }
+
+  /** Every setup-and-sandwich available from here, with the result of each. */
+  function pairingMoves(state) {
+    var out = [];
+    for (var s = 0; s < SETUPS.length; s++) {
+      var aimed = SETUPS[s].length ? cube.applySeq(state, SETUPS[s]) : state;
+      for (var m = 0; m < SANDWICHES.length; m++) {
+        var after = cube.applySeq(aimed, SANDWICHES[m]);
+        out.push({ seq: SETUPS[s].concat(SANDWICHES[m]), state: after, paired: pairedCount(after) });
+      }
+    }
+    return out;
+  }
+
+  function bestImprovement(state, from) {
+    var list = pairingMoves(state), best = null;
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i];
+      if (c.paired <= from) continue;
+      if (!best || c.paired > best.paired || (c.paired === best.paired && c.seq.length < best.seq.length)) best = c;
+    }
+    return best;
+  }
+
+  /**
+   * Two moves where the first is allowed to lose ground.
+   *
+   * Climbing alone always stops at ten of twelve. That is the textbook last two
+   * edges: the pair left over are crossed, and no single sandwich improves on
+   * it from any setup — measured, not assumed. Getting out of it needs the same
+   * thing a person does, which is to deliberately break a finished pair so the
+   * last two can be rebuilt through it. That first move makes the count worse,
+   * so a greedy step can never see it.
+   */
+  function bestPairOfMoves(state, from) {
+    var first = pairingMoves(state);
+    first.sort(function (a, b) { return (b.paired - a.paired) || (a.seq.length - b.seq.length); });
+    // Trying every first move against every second is about 21 million cube
+    // turns, and when it finds nothing it has spent all of them: that was the
+    // whole of a 17-second worst case. The list is in order of most promising,
+    // and anything that works is found early, so it stops after this many and
+    // lets the shakes below deal with the rest.
+    var TRIES = 700;
+    var tried = 0;
+    for (var i = 0; i < first.length && tried < TRIES; i++) {
+      if (first[i].paired < from - 2) continue;      // no need to wreck it to escape
+      tried++;
+      var second = bestImprovement(first[i].state, from);
+      if (second) return { seq: first[i].seq.concat(second.seq), state: second.state, paired: second.paired };
+    }
+    return null;
+  }
+
+  /*
+   * A last resort for when even the two-step escape finds nothing.
+   *
+   * The climb plus the two-step escape finishes most cubes; the rest sit in a
+   * last-two-edges position this sandwich set cannot take apart. Widening the
+   * set is not the answer — every sandwich from every setup was tried against
+   * a stalled cube and none of them reaches eleven — and a set large enough to
+   * make a difference costs the ordinary case several times its runtime.
+   *
+   * So the cube is shaken and climbed again. The shakes are a fixed list, not
+   * random ones, so a cube that defeats all of them fails the same way twice
+   * and can be tracked down instead of being a ghost.
+   */
+  var SHAKES = (function () {
+    var out = [];
+    for (var i = 0; i < 12; i++) {
+      out.push(SETUPS[(i * 37 + 1) % SETUPS.length].concat(SANDWICHES[i % SANDWICHES.length]));
+    }
+    return out;
+  })();
+
+  function solveEdges(state) {
+    var moves = [];
+    var have = pairedCount(state);
+    var guard = 0, shaken = 0;
+    while (have < 12 && guard++ < 80) {
+      var step = bestImprovement(state, have) || bestPairOfMoves(state, have);
+      if (step) {
+        moves = moves.concat(step.seq);
+        state = step.state;
+        have = step.paired;
+        continue;
+      }
+      if (shaken >= SHAKES.length) return null;
+      var shake = SHAKES[shaken++];
+      moves = moves.concat(shake);
+      state = cube.applySeq(state, shake);
+      have = pairedCount(state);
+    }
+    return have === 12 ? { moves: moves, state: state } : null;
+  }
+
+  // ---- stage 3: solve it as a 3x3 -----------------------------------------
+
+  /*
+   * With solid centres and joined edge pairs, the outer layers of a 4x4 turn
+   * exactly like a 3x3: a face turn moves whole pieces and never splits a pair.
+   * So one sticker is read from each of the 3x3's 54 slots and the existing
+   * two-phase solver is handed the result. Its moves are outer turns, which
+   * mean the same thing on both cubes, so they need no translation.
+   */
+  var REDUCE_PICK = [0, 1, 3];      // a 3x3 row or column -> which 4x4 one to read
+
+  function reduceTo3x3(state) {
+    var out = new Int8Array(54);
+    for (var f = 0; f < 6; f++) {
+      for (var r = 0; r < 3; r++) {
+        for (var c = 0; c < 3; c++) {
+          out[f * 9 + r * 3 + c] = state[f * PER + REDUCE_PICK[r] * N + REDUCE_PICK[c]];
+        }
+      }
+    }
+    return out;
+  }
+
+  // ---- stage 4: parity ----------------------------------------------------
+
+  /*
+   * Two positions a 3x3 can never be in, which a 4x4 reaches because its two
+   * wings of an edge look alike and can be swapped without it showing.
+   *
+   *   OLL parity — one edge pair flipped. The reduced cube reads as a 3x3 with
+   *                a single flipped edge, which no intact 3x3 can be.
+   *   PLL parity — two edge pairs swapped, so the reduced cube reads as a 3x3
+   *                with two pieces exchanged.
+   *
+   * cube.js's validator already names both of these exactly, so the parity is
+   * not guessed from the move count — it is read off the reduced cube, and the
+   * matching algorithm is applied.
+   *
+   * Both algorithms leave every centre solid and every pair joined. That is a
+   * property of the permutation rather than of any one cube, so checking it
+   * once on a solved cube settles it for every cube — and it is checked, at
+   * load, rather than taken on trust.
+   *
+   * The PLL one was not taken from a table: the published algorithms are
+   * written with wide turns, and `u` here is a single inner slice, so they do
+   * not carry across (the usual r2 U2 r2 u2 r2 u2 wrecks the centres in this
+   * notation). It came from a sweep of every half-turn sequence up to seven
+   * moves, keeping those that leave the centres solid, the pairs joined, and a
+   * reduced cube the validator calls two-pieces-swapped. Twelve exist at seven
+   * moves; this is one of them.
+   */
+  var OLL_PARITY = "r2 B2 U2 l U2 r' U2 r U2 F2 r F2 l' B2 r2".split(' ');
+  var PLL_PARITY = 'u2 R2 F2 u2 F2 R2 u2'.split(' ');
+
+  function preservesReduction(seq) {
+    var after = cube.applySeq(cube.SOLVED, seq);
+    return centresSolved(after) && allEdgesPaired(after);
+  }
+
+  if (!preservesReduction(OLL_PARITY) || !preservesReduction(PLL_PARITY)) {
+    throw new Error('a parity algorithm does not preserve the reduction');
+  }
+
+  /** Which parity, if any, the reduced cube is showing. */
+  function parityOf(state) {
+    var verdict = Cube3.validate(reduceTo3x3(state));
+    if (verdict.ok) return null;
+    if (/flipped in place/i.test(verdict.message)) return 'oll';
+    if (/look swapped/i.test(verdict.message)) return 'pll';
+    return 'unknown';
+  }
+
+  // ---- the whole solve ----------------------------------------------------
+
+  function tagged(moves, stage) {
+    return moves.map(function (m) { return { move: m, stage: stage }; });
+  }
 
   /**
    * Solve a 4x4.
    *
-   * Refuses, for now, and says exactly how far it can get. Handing back a move
-   * list that does not solve the cube in front of someone would be worse than
-   * handing back nothing, so until edge pairing is written this returns the
-   * centre solution and an honest account of what is missing.
+   * Every stage is checked against the cube itself rather than trusted, and the
+   * whole thing is replayed at the end: if the move list does not actually
+   * finish the cube, it is thrown away and the solve refuses. Handing someone
+   * moves for a cube they do not own is the worst failure this app has.
    */
   function solve(state) {
     var scheme = schemeOf(state);
     if (!scheme.ok) return { ok: false, message: scheme.message };
 
-    var normalised = normalise(state, scheme);
-    var centres = solveCentres(normalised);
+    var working = normalise(state, scheme);
+    var steps = [];
+
+    var centres = solveCentres(working);
     if (!centres) {
-      return { ok: false, message: 'The centres of this cube could not be worked out. That usually means a sticker was read as the wrong colour — check the map.' };
+      return { ok: false, message: 'The centres of this cube could not be worked out. That usually ' +
+        'means a sticker was read as the wrong colour — check the map.' };
+    }
+    steps = steps.concat(tagged(centres.moves, 'centres'));
+    working = centres.state;
+
+    var edges = solveEdges(working);
+    if (!edges) {
+      return { ok: false, message: 'The edge pairs of this cube could not be joined up. Check the map ' +
+        'for a sticker read as the wrong colour.' };
+    }
+    steps = steps.concat(tagged(edges.moves, 'edges'));
+    working = edges.state;
+
+    // Parity can show up as one case, then the other once the first is cleared,
+    // so this loops rather than testing once.
+    for (var pass = 0; pass < 3; pass++) {
+      var parity = parityOf(working);
+      if (!parity) break;
+      if (parity === 'unknown') {
+        return { ok: false, message: 'Once the pairs were joined this did not come out as a cube that ' +
+          'can exist. Check the map — a sticker has almost certainly been read as the wrong colour.' };
+      }
+      var alg = parity === 'oll' ? OLL_PARITY : PLL_PARITY;
+      steps = steps.concat(tagged(alg, 'parity'));
+      working = cube.applySeq(working, alg);
+    }
+
+    var reduced = reduceTo3x3(working);
+    var verdict = Cube3.validate(reduced);
+    if (!verdict.ok) return { ok: false, message: verdict.message };
+
+    var finish = Kociemba.solveMoves(reduced);
+    if (!finish) return { ok: false, message: 'The last stage could not be solved.' };
+    steps = steps.concat(tagged(finish, 'reduced'));
+
+    // Replay everything on the cube as it was actually given, in the user's own
+    // colours, and refuse unless it really does come out solved.
+    var states = [Uint8Array.from(state)];
+    for (var i = 0; i < steps.length; i++) {
+      states.push(cube.apply(states[i], steps[i].move));
+    }
+    var end = states[states.length - 1];
+    for (var f = 0; f < 6; f++) {
+      for (var k = 0; k < PER; k++) {
+        if (end[f * PER + k] !== end[f * PER]) {
+          return { ok: false, message: 'The solver produced moves that do not finish this cube, so it ' +
+            'has thrown them away rather than hand them over. This is a bug — please report it.' };
+        }
+      }
+    }
+
+    var groups = [];
+    for (var g = 0; g < steps.length; g++) {
+      var last = groups[groups.length - 1];
+      if (!last || last.id !== steps[g].stage) {
+        var info = STAGES.filter(function (s) { return s.id === steps[g].stage; })[0];
+        groups.push({ id: info.id, title: info.title, blurb: info.blurb, start: g, count: 1 });
+      } else last.count++;
     }
 
     return {
-      ok: false,
-      partial: { stage: 'centres', moves: centres.moves },
-      message: 'A 4×4 solution is not finished yet. The centres can be solved (' +
-        centres.moves.length + ' moves from here), but joining the edge pairs is still ' +
-        'being built, so there is no full solution to show. The map and the 3D view work.'
+      ok: true,
+      steps: steps,
+      states: states,
+      groups: groups,
+      moves: steps.map(function (s) { return s.move; })
     };
   }
 
@@ -447,7 +712,10 @@
     // exposed so the tests can drive one stage at a time
     _internals: {
       EDGE_SLOTS: EDGE_SLOTS, edgePaired: edgePaired, allEdgesPaired: allEdgesPaired,
-      EDGE_FACELETS: EDGE_FACELETS,
+      EDGE_FACELETS: EDGE_FACELETS, pairedCount: pairedCount, solveEdges: solveEdges,
+      SANDWICHES: SANDWICHES, SETUPS: SETUPS,
+      reduceTo3x3: reduceTo3x3, parityOf: parityOf,
+      OLL_PARITY: OLL_PARITY, PLL_PARITY: PLL_PARITY, preservesReduction: preservesReduction,
       cube: cube, ALL_MOVES: ALL_MOVES, OUTER: OUTER,
       inverseOf: inverseOf, invertSeq: invertSeq,
       makeProjection: makeProjection, projectState: projectState,

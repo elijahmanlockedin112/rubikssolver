@@ -15,7 +15,7 @@ function check(name, cond, extra) {
   else { failures++; console.log('  FAIL ' + name + (extra ? ' — ' + extra : '')); }
 }
 
-var N = 4;
+var N = 4, per = N * N;
 var cube = CubeN.of(N);
 var trials = +(process.argv[2] || 30);
 
@@ -91,29 +91,115 @@ check('the centre solution stays a sensible length', worstLen <= 26, 'longest wa
 // so the tail is what matters, not the median.
 check('the centres are solved quickly enough to feel like a click', worstMs <= 5000, 'slowest was ' + worstMs + 'ms');
 
-console.log('\nwhat is not built yet');
+console.log('\nthe edge pairs');
 
-// The rule this codebase runs on: never silently wrong. A solver that cannot
-// finish must say so, not hand over a move list that leaves a scrambled cube.
-check('solve() refuses rather than returning moves that do not solve', (function () {
-  for (var t = 0; t < 5; t++) {
-    var out = S4.solve(scrambled());
-    if (out.ok) return false;                       // must not claim success
-    if (!out.message || !/not finished yet/i.test(out.message)) return false;
+var pairOk = 0, pairMoves = [];
+for (var e = 0; e < Math.min(trials, 12); e++) {
+  var s0 = scrambled();
+  var sch = I.schemeOf(s0);
+  var c0 = I.solveCentres(I.normalise(s0, sch));
+  if (!c0) continue;
+  var pr = I.solveEdges(c0.state);
+  if (!pr) continue;
+  // pairing must not have undone the centres it was handed
+  if (I.allEdgesPaired(pr.state) && I.centresSolved(pr.state)) pairOk++;
+  pairMoves.push(pr.moves.length);
+}
+console.log('  ' + pairMoves.length + ' cubes paired, longest ' + Math.max.apply(null, pairMoves) + ' moves');
+check('pairing finishes and leaves the centres alone', pairOk === pairMoves.length && pairOk > 0,
+  pairOk + '/' + pairMoves.length);
+
+console.log('\nparity');
+
+// Both algorithms must leave the reduction intact for ANY cube, not just the
+// one they were checked on. That holds because it is a property of the
+// permutation, so checking it once on a solved cube settles it.
+check('the OLL parity algorithm keeps the centres solid and the pairs joined',
+  I.preservesReduction(I.OLL_PARITY));
+check('the PLL parity algorithm keeps the centres solid and the pairs joined',
+  I.preservesReduction(I.PLL_PARITY));
+
+check('a solved cube shows no parity', I.parityOf(cube.SOLVED) === null);
+
+check('the OLL algorithm produces exactly the case it is meant to fix',
+  I.parityOf(cube.applySeq(cube.SOLVED, I.OLL_PARITY)) === 'oll');
+check('the PLL algorithm produces exactly the case it is meant to fix',
+  I.parityOf(cube.applySeq(cube.SOLVED, I.PLL_PARITY)) === 'pll');
+
+check('each parity algorithm undoes itself', (function () {
+  var a = cube.applySeq(cube.applySeq(cube.SOLVED, I.OLL_PARITY), I.OLL_PARITY);
+  var b = cube.applySeq(cube.applySeq(cube.SOLVED, I.PLL_PARITY), I.PLL_PARITY);
+  return I.parityOf(a) === null && I.parityOf(b) === null;
+})());
+
+console.log('\nsolving the whole cube');
+
+var solvedCount = 0, refused = 0, lengths = [], durations = [];
+for (var w = 0; w < trials; w++) {
+  var cubeIn = scrambled();
+  var t0 = Date.now();
+  var res = S4.solve(cubeIn);
+  var took = Date.now() - t0;
+  if (!res.ok) { refused++; continue; }
+  // Replay the moves independently of anything the solver returned, and look
+  // at the cube. This is the only check that actually matters.
+  var end = cube.applySeq(cubeIn, res.moves);
+  var uniform = true;
+  for (var f2 = 0; f2 < 6; f2++) {
+    for (var k2 = 0; k2 < per; k2++) if (end[f2 * per + k2] !== end[f2 * per]) uniform = false;
+  }
+  if (uniform) solvedCount++;
+  lengths.push(res.moves.length);
+  durations.push(took);
+}
+lengths.sort(function (a, b) { return a - b; });
+durations.sort(function (a, b) { return a - b; });
+var longest = lengths[lengths.length - 1], slowest = durations[durations.length - 1];
+console.log('  ' + trials + ' cubes: ' + solvedCount + ' solved, ' + refused + ' refused' +
+  '  [' + lengths[0] + '-' + longest + ' moves, median ' + lengths[lengths.length >> 1] +
+  '; slowest ' + slowest + 'ms]');
+
+check('every scrambled cube comes out solved', solvedCount === trials, solvedCount + '/' + trials);
+
+// Measured over 150 random cubes: all 150 solved, 65 to 112 moves, median 89,
+// 90th percentile 104. Reduction is not
+// a short method and there is no practical optimal solver at this size, so the
+// bar is about catching a stage that has started flailing, not move-count
+// tuning. 150 leaves room above the worst seen.
+check('the solution stays a sensible length', longest <= 150, 'longest was ' + longest);
+
+// Measured over 300 random cubes: median 991ms, 95th percentile 3095ms, 99th
+// 4870ms — but a long tail, worst seen 25658ms. The tail is the last-two-edges
+// escape: when it finds nothing it has still tried every combination it was
+// allowed. The bar is set above the worst measured rather than at the median,
+// because what it is guarding against is a stage that never returns, not a
+// slow one.
+check('a cube is always solved in bounded time', slowest <= 40000, 'slowest was ' + slowest + 'ms');
+
+console.log('\nrefusing what cannot be solved');
+
+check('an impossible cube is refused with a reason, not solved', (function () {
+  var broken = Uint8Array.from(scrambled());
+  for (var i = 0; i < per; i++) broken[i] = broken[per];   // paint a whole face wrong
+  var out = S4.solve(broken);
+  return !out.ok && !!out.message && !out.moves;
+})());
+
+check('a refusal never comes with moves attached', (function () {
+  for (var t = 0; t < 6; t++) {
+    var broken = Uint8Array.from(scrambled());
+    broken[0] = (broken[0] + 1) % 6;                       // one sticker wrong
+    var out = S4.solve(broken);
+    if (!out.ok && out.moves) return false;
+    if (out.ok) {
+      // if it claims success it had better be telling the truth
+      var end2 = cube.applySeq(broken, out.moves);
+      for (var f3 = 0; f3 < 6; f3++) {
+        for (var k3 = 0; k3 < per; k3++) if (end2[f3 * per + k3] !== end2[f3 * per]) return false;
+      }
+    }
   }
   return true;
-})());
-
-check('the refusal still says how far it got', (function () {
-  var out = S4.solve(scrambled());
-  return !!out.partial && out.partial.stage === 'centres' && out.partial.moves.length > 0;
-})());
-
-check('an impossible cube is refused before any solving is attempted', (function () {
-  var broken = Uint8Array.from(scrambled());
-  for (var i = 0; i < 16; i++) broken[i] = broken[16];
-  var out = S4.solve(broken);
-  return !out.ok && !out.partial;
 })());
 
 console.log('\n' + (failures ? failures + ' FAILURE(S)' : 'all checks passed') + '\n');

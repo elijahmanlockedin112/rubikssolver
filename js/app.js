@@ -13,6 +13,22 @@
 
   var STORE_KEY = 'rubiks-cube-coach.state';
 
+  /*
+   * The cube's size has to be settled before anything asks how big a cube is.
+   *
+   * `solvedColorState()` sizes itself from `size`, so if `size` is still being
+   * hoisted when it runs, `stickerCount()` is 6 * undefined * undefined = NaN,
+   * and `new Int8Array(NaN)` is not an error — it is an array of length zero.
+   * Everything downstream then failed silently, because writing to a typed
+   * array past its end is simply ignored: the map stayed blank, painting a
+   * sticker did nothing, a finished scan threw its colours away, and solving
+   * said every sticker still needed a colour. Switching size and back fixed it,
+   * because that rebuilds the array with `size` set by then.
+   */
+  var size = 3;                      // 3 for a 3x3, 4 for a 4x4
+  function perFace() { return size * size; }
+  function stickerCount() { return 6 * perFace(); }
+
   var colorState = solvedColorState();
   var selectedColor = 0;
   var painting = false;
@@ -33,10 +49,6 @@
     { move: 300, gap: 110 },
     { move: 190, gap: 60 }
   ];
-
-  var size = 3;                      // 3 for a 3x3, 4 for a 4x4
-  function perFace() { return size * size; }
-  function stickerCount() { return 6 * perFace(); }
 
   function solvedColorState() {
     var s = new Int8Array(stickerCount());
@@ -184,7 +196,7 @@
     });
     $('size-note').textContent = size === 3
       ? 'Scanning and solving both work.'
-      : '4×4: scanning and the map work; solving is still being built.';
+      : '4×4: scanning, the map and solving all work.';
     showView('setup');
     setMessage('');
     save();
@@ -315,6 +327,7 @@
   }
 
   function doSolve() {
+    if (size === 4) { solveBigCube(); return; }
     if (size !== 3) {
       setMessage('Solving a ' + size + '×' + size + ' is still being built. The map and the 3D view ' +
         'work — scan one and have a look — but there is no solution to follow yet.', 'error');
@@ -377,11 +390,51 @@
     }
   }
 
+  /**
+   * Solve a 4x4.
+   *
+   * The reduction solver works the cube out for itself — which colour belongs
+   * on which face included, since a 4x4 has no fixed centre to say — so the
+   * only thing to check here is that every sticker has a colour. Anything
+   * beyond that it explains itself, and it refuses rather than guessing.
+   *
+   * There is no "fewest moves" option at this size: reduction is the only
+   * practical method, so both speed settings run the same solve.
+   */
+  function solveBigCube() {
+    for (var i = 0; i < colorState.length; i++) {
+      if (colorState[i] < 0) {
+        setMessage('Every sticker needs a colour before solving. Fill in the gaps and try again.', 'error');
+        return;
+      }
+    }
+    repairNote = null;
+    setMessage('Working out a solution…');
+    setTimeout(function () {
+      var out;
+      try {
+        out = Solver4.solve(colorState);
+      } catch (err) {
+        setMessage('Something went wrong solving that cube: ' + err.message, 'error');
+        return;
+      }
+      if (!out.ok) { setMessage(out.message, 'error'); return; }
+      setMessage('');
+      finishSolve(out);
+    }, 20);
+  }
+
   function finishSolve(solution) {
     result = solution;
-    colorStates = [Int8Array.from(colorState)];
-    for (var m = 0; m < result.moves.length; m++) {
-      colorStates.push(Cube.permute(colorStates[m], Cube.MOVE_PERMS[result.moves[m]], new Int8Array(stickerCount())));
+    // A 4x4 solution brings its own states with it, worked out on the same
+    // model that produced the moves — so the two can never drift apart.
+    if (solution.states) {
+      colorStates = solution.states.map(function (s) { return Int8Array.from(s); });
+    } else {
+      colorStates = [Int8Array.from(colorState)];
+      for (var m = 0; m < result.moves.length; m++) {
+        colorStates.push(Cube.permute(colorStates[m], Cube.MOVE_PERMS[result.moves[m]], new Int8Array(stickerCount())));
+      }
     }
 
     setMessage('');

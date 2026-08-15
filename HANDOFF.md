@@ -31,13 +31,11 @@ This machine has no global git identity, so commits are made with
 3D. Two solvers: `kociemba.js` (two-phase, ~20 moves, ~250ms) and `solver.js`
 (layer-by-layer, ~110 moves in seven teachable stages).
 
-**4x4 — everything except solving.** Model, grid detection, colour reading, face
+**4x4 — complete.** Model, grid detection, colour reading, face
 identification, the 96-sticker map and the 3D view all work; scanning a 4x4 lands
-correctly on the map. Pressing solve refuses with an explanation.
+correctly on the map, and solving works.
 
-Of the solver itself, the colour scheme and the centres are done and tested
-(`js/solver4.js`, `test/solver4.test.js`); edge pairing is not. `Solver4.solve()`
-refuses and says how far it got. See "Where the 4x4 solver actually is" below.
+The solver is done and tested — see "The 4x4 solver" below.
 
 | File | Does |
 | --- | --- |
@@ -52,71 +50,81 @@ refuses and says how far it got. See "Where the 4x4 solver actually is" below.
 | `js/render.js` | software 3D on a 2D canvas, any size |
 | `js/scan.js`, `js/app.js` | scanner and UI |
 
-## The remaining job: a 4x4 solver
+## The 4x4 solver
 
-Reduction method:
+`js/solver4.js`, tested by `test/solver4.test.js`. Measured over 150 random
+cubes: **150 solved and verified, 65-112 moves (median 89, 90th percentile 104),
+332-4096ms (median 1153)**. Verification replays the move list on the cube it was
+given and looks at the six faces; anything less than solved is thrown away and
+the solve refuses.
 
-1. **Pair the centres** — four matching centre pieces per face.
-2. **Pair the edges** — 24 wings into 12 matched pairs.
-3. **Solve it as a 3x3** — `solver.js` or `kociemba.js` already exist; outer-layer
-   moves map straight across.
-4. **Parity** — OLL parity (one edge pair flipped) and PLL parity (two pairs
-   swapped) cannot happen on a 3x3 and need their own algorithms.
+Four stages, averaging roughly 16 / 44 / 12 / 20 moves:
 
-Expect ~70-120 moves. There is no practical optimal 4x4 solver, so "fewest moves"
-does not apply at this size.
+1. **The colour scheme.** A 4x4 has no fixed centre, so which colour belongs on
+   which face is read off the corners: two colours are opposite exactly when no
+   corner shows both. Seed it from the corner *at the U-R-F position*, read U,
+   R, F. Seeding from any other corner also gives a valid scheme and the centres
+   solve to it happily — but it is the cube's own scheme turned a quarter round,
+   and no moves can turn a cube's faces into different faces, so nothing
+   complains until the 3x3 stage cannot finish.
+2. **Centres**, as two meet-in-the-middle searches over a projection of the cube
+   — only the stickers that stage cares about, which is what brings an
+   impossible space down to a crossable one. U and D must go together: a face
+   turn only spins its own centres on the spot, so only slices carry a centre
+   between faces, and an x or z slice drags two of U's centre slots with it.
+   There is therefore no move set that both moves centres between faces and
+   leaves a finished U and D alone. Measured: U+D is ~51M states with diameter
+   8, the four side centres ~63M with diameter ~11, so each half of each search
+   only reaches depth 4-6.
+3. **Edge pairs**, by hill-climbing on how many edges are paired. Two facts make
+   it work: outer face turns are free (they keep solid centres solid, and carry
+   an edge's pair of wing slots onto another edge's pair, so they never break a
+   finished pair), and a slice sandwich — slice out, three outer turns, slice
+   back — restores the centres exactly when the inner block turns each side face
+   a net whole turn. Setups aim, sandwiches work.
+4. **Parity**, the two positions a 3x3 cannot be in. `cube.js`'s validator names
+   both exactly ("one edge is flipped in place", "two pieces look swapped"), so
+   the case is read off the reduced cube rather than guessed.
 
-## Where the 4x4 solver actually is
+### Things worth not rediscovering
 
-`js/solver4.js`. Done and under test:
+- **The projection search cannot pair edges.** A projection is only valid when
+  its slots are closed under the moves, and "the centres, the edges already
+  paired, and the one being built" is not — a move carries a tracked facelet to
+  an untracked one and the search silently returns nonsense. Closing it means
+  all 48 edge facelets, and then the goal stops being a single state, which is
+  what meet-in-the-middle needs.
+- **Climbing always stalls at 10 of 12.** That is the textbook last two edges:
+  the pair left over are crossed, and no single sandwich improves on it from any
+  setup — every sandwich from every setup was tried. The way out is a two-step
+  move whose first half makes things worse, which is what a person does when
+  they break a finished pair to rebuild the last two. A fixed list of shakes
+  catches the remainder; they are fixed, not random, so a cube that defeats them
+  fails the same way twice.
+- **The PLL parity algorithm is not the published one.** Published algorithms
+  are written with wide turns, and `u` here is a single inner slice, so they do
+  not carry across — the usual `r2 U2 r2 u2 r2 u2` wrecks the centres in this
+  notation. `u2 R2 F2 u2 F2 R2 u2` came from sweeping every half-turn sequence
+  up to seven moves for one that keeps the centres solid, the pairs joined, and
+  leaves a cube the validator calls two-pieces-swapped. Twelve exist at seven
+  moves.
+- **Both parity algorithms preserve the reduction for any cube**, because that
+  is a property of the permutation rather than of a particular cube — so
+  checking it once on a solved cube settles it. It is checked at load.
 
-- **The colour scheme.** A 4x4 has no fixed centre, so which colour belongs on
-  which face has to be read off the corners: two colours are opposite exactly
-  when no corner shows both. Seed it from the corner *at the U-R-F position*,
-  read U, R, F. Seeding from any other corner also gives a valid scheme and the
-  centres will happily solve to it — but it is the cube's own scheme turned a
-  quarter round, and no moves can turn a cube's faces into different faces, so
-  nothing complains until the 3x3 stage cannot finish.
-- **The centres.** Measured over 60 random cubes: solved 60/60, 14-20 moves
-  (median 17), 21-941ms (median 172).
+### If a shorter solution is wanted
 
-Both centre stages are meet-in-the-middle searches over a *projection* — only the
-stickers that stage cares about. Measured sizes: U+D together is ~51M states with
-diameter 8; the four side centres are ~63M with diameter ~11. Each half of the
-search therefore only reaches depth 4-6, a few hundred thousand states.
+[TPR-4x4x4-Solver](https://github.com/cs0x7f/TPR-4x4x4-Solver) averages 44.39
+moves against this solver's 89, so it is worth roughly half the moves. Two
+things to know before starting:
 
-U and D have to be solved **together**. A face turn only spins its own centres on
-the spot, so only slices move a centre between faces, and an x- or z-axis slice
-drags two of U's centre slots with it. So no move set both moves centres between
-faces and leaves a finished U and D alone — the last two opposite faces can never
-be done one after the other.
-
-### Edge pairing — not built, and what is already known
-
-Do not re-derive these; each was measured in the model.
-
-- **Outer face turns are free.** They keep solid centres solid, and they map an
-  edge's pair of wing slots onto another edge's pair, so they can never break a
-  pair already made. Every setup move can be one.
-- **Only a slice can make a new pair**, and a slice alone wrecks the centres. A
-  sandwich `s A s'` restores them exactly when `A` turns each side face a net
-  whole turn — which is why `u' R U R' F R' F' R u` is centre-safe (R: +1-1-1+1,
-  F: +1-1) and `u R2 u'` is not.
-- **Searching for the pairs the way the centres were searched does not work.** A
-  projection is only valid when its slots are closed under the moves, and
-  "the centres, the edges already paired, and the one being built" is not: a move
-  carries a tracked facelet to an untracked one, and the search silently returns
-  nonsense. Closing it means all 48 edge facelets, and then the goal stops being
-  a single state — exactly what meet-in-the-middle needs. Pairing must be done by
-  algorithm, not by search.
-- **A usable algorithm exists.** `U2 r l' U2 l r'` keeps the centres solid, moves
-  no corner at all, and disturbs only six wings. Found by sweeping all 1116x1116
-  commutators [A,B] with A and B up to two moves; nothing in that family touches
-  fewer than six wings.
-
-What is left is the textbook method's bookkeeping: keeping finished pairs out of
-the slice being worked, and the last few edges, which need their own case. Then
-the 3x3 handoff and the two parity algorithms.
+- It is **Java**, 15 source files of table-heavy code, and it leans on min2phase
+  for the final 3x3 — which this repo already has in `kociemba.js`. So the port
+  is the reduction half: Center1/2/3, Edge3, the cube classes and the search.
+- It is dual-licensed **GPLv3 and MIT**, so the MIT half is compatible with this
+  repo being all rights reserved. **csTimer's JavaScript port is not** — csTimer
+  is GPLv3 only, and taking its 4x4 solver would put this whole app under the
+  GPL. Port from the TPR repo under MIT, not from csTimer.
 
 ## Lessons already paid for — do not relearn these
 

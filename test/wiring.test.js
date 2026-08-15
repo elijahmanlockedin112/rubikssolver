@@ -63,6 +63,26 @@ files.forEach(function (file) {
     missing.length ? 'missing: ' + missing.join(', ') : '');
 });
 
+console.log('\nnothing is sized before the size is known');
+
+/*
+ * app.js sizes its sticker array from `size`. If `size` is still hoisted and
+ * undefined when that runs, stickerCount() is NaN, and `new Int8Array(NaN)` is
+ * not an error — it is an array of length zero. Nothing then complains,
+ * because writing past the end of a typed array is silently ignored: the map
+ * stayed blank, painting did nothing, a finished scan threw its colours away,
+ * and solving reported that every sticker still needed a colour.
+ */
+var app = fs.readFileSync(path.join(jsDir, 'app.js'), 'utf8');
+var sizeDecl = app.search(/\bvar size\s*=\s*\d/);
+var stateDecl = app.search(/\bvar colorState\s*=/);
+check('app.js settles the cube size before it builds the sticker array',
+  sizeDecl >= 0 && stateDecl >= 0 && sizeDecl < stateDecl,
+  'size declared at ' + sizeDecl + ', colorState at ' + stateDecl);
+
+check('an Int8Array built from an unknown size really is empty, not an error',
+  new Int8Array(6 * (undefined * undefined)).length === 0);
+
 console.log('\nthe scanner hands its result back');
 
 // The specific shape of the bug above: finish() is the only route out of the
