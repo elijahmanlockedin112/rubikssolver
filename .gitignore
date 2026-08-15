@@ -9,6 +9,10 @@ package-lock.json
 Thumbs.db
 desktop.ini
 
+# secrets — the Gemini key lives here and must never be committed
+.env
+.env.local
+
 # scratch
 *.log
 tmp/

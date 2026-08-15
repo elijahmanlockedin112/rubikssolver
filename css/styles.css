@@ -278,6 +278,29 @@ h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .scan-dot.is-done { border-color: var(--accent-2); color: var(--accent-2); }
 .scan-dot.is-current { border-color: var(--accent); color: var(--text); background: rgba(76,141,255,0.14); }
 
+.scan-stage { position: relative; }
+.scan-steady {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: 8px;
+  font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 4px 12px; border-radius: 999px;
+  background: rgba(8, 10, 14, 0.78); border: 1px solid var(--line); color: var(--text-dim);
+}
+.scan-steady.is-steady { border-color: var(--accent-2); color: var(--accent-2); }
+.toggle-center { justify-content: center; margin: 8px 0 2px; }
+
+/* stickers the two scan readers disagreed about */
+.sticker.is-unsure {
+  box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 4px var(--accent);
+  animation: unsure-pulse 1.6s ease-in-out infinite;
+}
+@keyframes unsure-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 4px rgba(76,141,255,0.9); }
+  50% { box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 4px rgba(76,141,255,0.3); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sticker.is-unsure { animation: none; }
+}
+
 .footer {
   padding: 18px clamp(14px, 3vw, 34px) 32px;
   color: #6d7686;

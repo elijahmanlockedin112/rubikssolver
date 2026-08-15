@@ -16,6 +16,7 @@
   var colorState = solvedColorState();
   var selectedColor = 0;
   var painting = false;
+  var unsure = {};   // facelets the two scan readers disagreed about
 
   var result = null;      // solver output
   var colorStates = [];   // display state after each move
@@ -136,6 +137,7 @@
   function paint(idx) {
     if (isCenter(idx) && !$('edit-centers').checked) return;
     colorState[idx] = selectedColor;
+    delete unsure[idx];   // the user has now had their say on this one
     refreshNet();
     refreshViews();
     save();
@@ -146,8 +148,10 @@
   function refreshNet() {
     var cells = document.querySelectorAll('.sticker');
     [].forEach.call(cells, function (cell) {
-      var v = colorState[+cell.dataset.index];
+      var idx = +cell.dataset.index;
+      var v = colorState[idx];
       cell.style.background = v < 0 ? '' : PALETTE[v];
+      cell.classList.toggle('is-unsure', !!unsure[idx]);
     });
   }
 
@@ -515,17 +519,30 @@
     $('btn-scan').addEventListener('click', function () {
       var scanner = new CubeScanner({
         palette: PALETTE,
-        onDone: function (colors) {
-          colorState.set(colors);
+        onDone: function (result) {
+          colorState.set(result.colors);
+          unsure = {};
+          (result.unsure || []).forEach(function (i) { unsure[i] = true; });
           refreshNet(); refreshViews(); updateHoldLabels(); save();
+
           var solverState = Cube.toSolverSpace(colorState);
           var verdict = solverState ? Cube.validate(solverState) : { ok: false, message: 'The six centers came out the same color.' };
-          if (verdict.ok) {
-            setMessage('Scan read a valid cube. Give the map a quick look, then solve.', 'ok');
+          var flagged = Object.keys(unsure).length;
+          var reader = result.source === 'gemini' ? 'Gemini' : 'the built-in reader';
+
+          if (!verdict.ok) {
+            setMessage('Scanned with ' + reader + ', but it is not a valid cube yet — ' +
+              verdict.message.charAt(0).toLowerCase() + verdict.message.slice(1) +
+              ' Fix the wrong stickers on the map.', 'error');
+          } else if (flagged) {
+            setMessage('Scanned with ' + reader + '. ' + flagged + ' sticker' + (flagged === 1 ? '' : 's') +
+              ' the two readers disagreed about ' + (flagged === 1 ? 'is' : 'are') +
+              ' outlined below — check those, then solve.', 'ok');
           } else {
-            setMessage('Scanned, but it is not a valid cube yet — ' + verdict.message.charAt(0).toLowerCase() +
-              verdict.message.slice(1) + ' Fix the wrong stickers on the map.', 'error');
+            setMessage('Scanned with ' + reader + ' and both readers agreed on all 54 stickers. ' +
+              'Give the map a quick look, then solve.', 'ok');
           }
+          if (result.note) console.info('scan note:', result.note);
         }
       });
       scanner.open();

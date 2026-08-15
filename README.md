@@ -45,6 +45,37 @@ To stop sharing:
 tailscale serve --https=443 off
 ```
 
+## Scanning with Gemini (optional)
+
+The built-in color reader is fussy: it samples nine fixed patches out of a fixed
+square, so the cube has to be square-on and filling the frame. Handing the
+photos to a vision model removes that constraint.
+
+```bash
+cp .env.example .env      # then paste your key into GEMINI_API_KEY
+npm start
+```
+
+The key is read by the server process only — it is never sent to the browser,
+and `.env` is gitignored. Leave `GEMINI_MODEL` blank and the server asks the API
+which models exist and picks a current vision-capable one, so nothing here
+breaks when model names change. With no key present, `/api/scan` returns 501 and
+the app silently uses the built-in reader instead.
+
+**Both readers always run.** All six photos go to Gemini in a single request, so
+it can compare colors across faces rather than judging each in isolation — which
+is exactly what red-versus-orange needs. The local classifier reads the same
+photos independently. Then:
+
+- `Cube.validate()` decides whether the answer is a physically possible cube. If
+  it isn't, the specific complaint ("that is not a physically possible cube:
+  one edge is flipped in place") goes back to the model and it tries again,
+  twice at most.
+- Any sticker the two readers disagree about, plus anything the model itself
+  flagged as uncertain, gets outlined on the map for you to confirm.
+
+Neither reader has to be perfect. They just have to be wrong in different places.
+
 ## What's inside
 
 | File | What it does |
@@ -53,7 +84,9 @@ tailscale serve --https=443 off
 | `js/kociemba.js` | Two-phase solver. Builds ~4 MB of move and pruning tables, then runs two IDA\* searches. Typically 20 moves in ~250 ms. |
 | `js/solver.js` | Layer-by-layer beginner solver: bottom cross, bottom corners, middle edges, top cross, top face, place corners, last edges. |
 | `js/render.js` | A small software 3D renderer on a 2D canvas — 27 cubies, painter's algorithm, backface culling, animated layer turns and curved direction arrows. No WebGL, no libraries. |
-| `js/scan.js` | Webcam scanning. Six guided captures, then each sticker is matched against the six center stickers with a nine-per-color quota. |
+| `js/scan.js` | Camera scanning. Six guided captures with auto-capture once the cube is held still, then the photos go to both readers. |
+| `tools/gemini.js` | Prompt, response parsing, cube validation and model selection for the Gemini reader. Deliberately I/O-free so it can be tested without a key. |
+| `tools/serve.js` | Static server plus `POST /api/scan` — the only place the API key exists. |
 | `js/app.js` | The editor, the validation messages, and the step player. |
 
 ### How the fast solver works
@@ -94,6 +127,8 @@ node test/solver.test.js 1000
   coordinate round-trips, then solves random scrambles and checks each result.
 - `test/solver.test.js` — move engine identities, the properties each
   beginner-method algorithm is relied on for, the validator, and full solves.
+- `test/gemini.test.js` — fabricated model responses through the real parse,
+  validate, cross-check and model-selection paths. No key, no network.
 - `test/scan.test.js` — feeds the classifier synthetic camera samples under
   tinted, uneven, noisy light and checks the cube comes back intact.
 

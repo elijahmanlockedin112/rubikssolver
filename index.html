@@ -145,8 +145,15 @@
     <h2 id="scan-title">Face 1 of 6 — Front</h2>
     <p id="scan-tip" class="hint"></p>
     <video id="scan-video" playsinline muted hidden></video>
-    <canvas id="scan-canvas" class="scan-canvas"></canvas>
+    <div class="scan-stage">
+      <canvas id="scan-canvas" class="scan-canvas"></canvas>
+      <span id="scan-steady" class="scan-steady">hold still…</span>
+    </div>
     <div id="scan-thumbs" class="scan-thumbs"></div>
+    <label class="toggle toggle-center">
+      <input type="checkbox" id="scan-auto" checked>
+      <span>Capture on its own once the cube is steady</span>
+    </label>
     <div class="row-buttons">
       <button id="scan-capture" class="btn btn-primary">Capture</button>
       <button id="scan-undo" class="btn">Redo last</button>
@@ -154,8 +161,8 @@
     </div>
     <p id="scan-message" class="message"></p>
     <p class="caption">
-      Fill the square with one face, keep the lighting even, and avoid glare.
-      Whatever it gets wrong you can fix on the map afterwards.
+      Roughly fill the square with one face — it does not have to be exact.
+      Anything the two readers disagree about gets flagged on the map afterwards.
     </p>
   </div>
 </div>
