@@ -337,7 +337,7 @@
   /**
    * The half of the job that works on named colours rather than raw pixels:
    * six faces of nine palette indices, in whatever order they were taken, each
-   * possibly rotated. Shared by the on-device reader and the Gemini fallback.
+   * possibly rotated.
    */
   function assembleFromColors(byCapture) {
     var centers = [];

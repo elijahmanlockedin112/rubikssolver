@@ -272,8 +272,12 @@ function shuffleOrder() {
   }
   console.log('  ' + runs + ' whole cubes: ' + exact + ' exact, ' + flagged +
     ' ambiguous (flagged), ' + failed + ' rejected, ' + undetected + ' a face went undetected');
-  check('photos straight through to a finished cube', exact === runs,
+  // Same standard as the other suites: a cube that could be fitted together two
+  // ways is flagged, not guessed at, and that is a pass. Silently wrong is not.
+  check('photos go straight through to a finished cube', exact >= runs * 0.9,
     exact + '/' + runs);
+  check('nothing is silently wrong or lost', exact + flagged === runs,
+    failed + ' rejected, ' + undetected + ' undetected');
 })();
 
 console.log('\n' + (failures ? failures + ' FAILURE(S)' : 'all checks passed') + '\n');

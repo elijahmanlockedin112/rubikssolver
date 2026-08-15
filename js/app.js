@@ -16,7 +16,8 @@
   var colorState = solvedColorState();
   var selectedColor = 0;
   var painting = false;
-  var unsure = {};   // facelets the two scan readers disagreed about
+  var unsure = {};   // facelets worth a second look before solving
+  var repairNote = null;   // what an automatic correction changed, if anything
 
   var result = null;      // solver output
   var colorStates = [];   // display state after each move
@@ -273,6 +274,30 @@
   }
 
   function doSolve() {
+    // A cube that is nearly right is usually one sticker away from being right,
+    // and "is this a real cube?" is a tight enough test to say which sticker.
+    repairNote = null;
+    var mend = typeof CubeRepair !== 'undefined' ? CubeRepair.repair(colorState) : null;
+    if (mend && mend.unique) {
+      colorState.set(mend.colors);
+      unsure = {};
+      mend.fixes[0].changes.forEach(function (c) { unsure[c.index] = true; });
+      refreshNet(); refreshViews(); save();
+      // Carried through to the solve screen: the setup message would be wiped
+      // by the view change, and a silent correction is the one thing this must
+      // never be.
+      repairNote = 'That was not quite a real cube, and there was exactly one way to fix it: ' +
+        mend.summary + '. Corrected — go back and change it if that is wrong.';
+    } else if (mend && !mend.unique) {
+      unsure = {};
+      mend.changed.forEach(function (group) { group.forEach(function (i) { unsure[i] = true; }); });
+      refreshNet();
+      setMessage('Almost — one sticker is wrong, but there are ' + mend.fixes.length +
+        ' ways to fix it and I will not guess. The possibilities are outlined below; ' +
+        'correct the one you know is wrong.', 'error');
+      return;
+    }
+
     var solverState = Cube.toSolverSpace(colorState);
     if (!solverState) {
       setMessage('Every sticker needs a color, and the six centers must all be different. Fill in the gaps and try again.', 'error');
@@ -314,6 +339,8 @@
     }
 
     setMessage('');
+    $('repair-note').textContent = repairNote || '';
+    $('repair-note').hidden = !repairNote;
     index = 0;
     buildStageList();
     buildNotationList();
@@ -520,7 +547,7 @@
       var scanner = new CubeScanner({
         palette: PALETTE,
         onDone: function (result) {
-          colorState.set(result.colors);
+          if (result.colors) colorState.set(result.colors);
           unsure = {};
           (result.unsure || []).forEach(function (i) { unsure[i] = true; });
           refreshNet(); refreshViews(); updateHoldLabels(); save();
@@ -531,12 +558,8 @@
           } else if (result.ambiguous) {
             setMessage('Scanned. Those photos could be fitted together in more than one way, so ' +
               'give the map a proper look before solving.', 'error');
-          } else if (result.source === 'gemini') {
-            setMessage('The on-device reader could not make sense of the photos, so Gemini read ' +
-              'them instead. Check the map, then solve.', 'ok');
           } else {
-            setMessage('Scanned on this device. It fits together as a real cube — ' +
-              'glance over the map, then solve.', 'ok');
+            setMessage('Scanned. It fits together as a real cube — glance over the map, then solve.', 'ok');
           }
           if (result.note) console.info('scan note:', result.note);
         }

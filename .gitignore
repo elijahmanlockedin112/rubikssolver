@@ -9,7 +9,7 @@ package-lock.json
 Thumbs.db
 desktop.ini
 
-# secrets — the Gemini key lives here and must never be committed
+# the app needs no secrets, but never let one in by accident
 .env
 .env.local
 

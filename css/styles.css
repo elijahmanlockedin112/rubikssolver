@@ -176,6 +176,18 @@ h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: 
   font-size: 0.86rem;
   margin-bottom: 12px;
 }
+/* "one sticker was wrong and I corrected it" — must not be missable */
+.repair-note {
+  background: rgba(255, 176, 32, 0.12);
+  border: 1px solid rgba(255, 176, 32, 0.45);
+  color: #ffd79a;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.86rem;
+  margin: 0 0 10px;
+}
+.repair-note[hidden] { display: none; }
+
 .transport { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
 .speed { margin-left: auto; display: flex; gap: 8px; align-items: center; font-size: 0.82rem; color: var(--text-dim); }
 .speed input { width: 110px; }

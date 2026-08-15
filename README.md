@@ -9,7 +9,7 @@ with an arrow on the layer you turn.
 **▶ Try it: https://elijahmanlockedin112.github.io/rubikssolver/**
 
 Runs entirely in the browser. No build step, no dependencies, no server, no
-network. Open `index.html` and it works, offline, forever.
+accounts, no API keys, no network. Open `index.html` and it works, offline, forever.
 
 ## Using it
 
@@ -32,9 +32,8 @@ The whole app is static files, and every path in it is relative, so it drops
 onto GitHub Pages as-is: *Settings → Pages → deploy from `main`, folder `/ (root)`*.
 That is what the link at the top is.
 
-The hosted copy has no `/api/scan` behind it, which costs nothing — scanning
-runs on the device. The Gemini fallback below simply never gets asked, and the
-scanner degrades to reporting what it could not work out.
+There is no backend, no API key and no account to sign up for. Everything —
+solving, scanning, reading the colors — happens in the browser.
 
 ## Testing changes on your phone (Tailscale)
 
@@ -91,39 +90,6 @@ twelve edges and eight corners has to be a real piece, appearing exactly once,
 with the corner twists and edge flips adding up. Usually exactly one combination
 survives; when more than one does, the app says so rather than guessing quietly.
 
-## Scanning with Gemini (fallback)
-
-The on-device reader handles ordinary photos fine. If it genuinely cannot make
-the six photos add up — a badly blurred shot, a colour it could not call — the
-same six images can get a second opinion from a vision model. This is a safety
-net, not the main road: with no key configured, `/api/scan` returns 501 and the
-app just reports what it could not work out.
-
-```bash
-cp .env.example .env      # then paste your key into GEMINI_API_KEY
-npm start
-```
-
-The key is read by the server process only — it is never sent to the browser,
-and `.env` is gitignored. Leave `GEMINI_MODEL` blank and the server asks the API
-which models exist and picks a current vision-capable one, so nothing here
-breaks when model names change. With no key present, `/api/scan` returns 501 and
-the app silently uses the built-in reader instead.
-
-All six photos go up in a single request, so the model can compare colors across
-faces rather than judging each in isolation — which is exactly what
-red-versus-orange needs. It is asked only for nine colors per photo; which face
-is which and which way up is worked out afterwards by the same assembler the
-on-device reader uses.
-
-- The assembler decides whether the answer can be a real cube. If it cannot, the
-  specific complaint goes back to the model and it tries again, twice at most.
-- The newest model is also the busiest, so a "high demand" failure is retried
-  and then falls back to the next model down the ranking.
-- Model choice comes from the API's own catalogue, with specialised variants
-  (image, tts, video, robotics) excluded — a name can advertise the newest
-  family and still be tuned for something else entirely.
-
 ## What's inside
 
 | File | What it does |
@@ -135,8 +101,7 @@ on-device reader uses.
 | `js/detect.js` | Finds the 3×3 grid in a photo: blob segmentation, a RANSAC-style lattice search, and a check that the seams are darker than the stickers. Runs in a few milliseconds, so it also drives the live outline. |
 | `js/assemble.js` | Names the colors against the six centres with a nine-per-color quota, then fits six unordered, arbitrarily-rotated faces into one cube by finding the arrangement that is physically possible. |
 | `js/scan.js` | Camera scanning: six snaps, any order, any way up, read on the device. |
-| `tools/gemini.js` | Prompt, response parsing, cube validation and model selection for the Gemini reader. Deliberately I/O-free so it can be tested without a key. |
-| `tools/serve.js` | Static server plus `POST /api/scan` — the only place the API key exists. |
+| `tools/serve.js` | Static file server for testing on a phone, plus an endpoint that saves a frame the detector could not read. No API key, nothing leaves the machine. |
 | `js/app.js` | The editor, the validation messages, and the step player. |
 
 ### How the fast solver works
@@ -184,12 +149,6 @@ node test/solver.test.js 1000
   checks the failure modes: a face shot twice, a misread sticker, and the rare
   case where the photos fit together two different ways, which must be flagged
   rather than returned quietly.
-- `test/gemini.test.js` — fabricated model responses through the real parse,
-  validate and model-selection paths. No key, no network.
-- `test/gemini-live.test.js` — renders six synthetic photos of a known cube,
-  sends them through the real endpoint, and checks all 54 stickers come back
-  right. Proves prompt, face order and sticker order line up end to end.
-  Skips itself when the server is down or has no key; costs one API call.
 - `test/scan.test.js` — feeds the classifier synthetic camera samples under
   tinted, uneven, noisy light and checks the cube comes back intact.
 
