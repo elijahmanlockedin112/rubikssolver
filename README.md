@@ -20,6 +20,31 @@ network. Open `index.html` and it works, offline, forever.
 Keep the cube in the same orientation the whole way through — the banner at the
 top of the solve screen reminds you which color goes up and which faces you.
 
+## On your phone (Tailscale)
+
+Scanning really wants a phone's rear camera, and phone browsers only allow
+camera access over HTTPS. Tailscale Serve solves both: it gives the machine a
+real HTTPS certificate on your tailnet, reachable from any device signed into
+the same account — and **not** from the public internet.
+
+Double-click `tools/phone.cmd`, or run it by hand:
+
+```bash
+npm start
+tailscale serve --bg 8123
+```
+
+Then open the `https://<machine>.<tailnet>.ts.net` address it prints on your
+phone, with Tailscale connected there. The Serve config survives reboots; the
+little Node server does not, so re-run the script (or `npm start`) after a
+restart.
+
+To stop sharing:
+
+```bash
+tailscale serve --https=443 off
+```
+
 ## What's inside
 
 | File | What it does |
