@@ -275,6 +275,31 @@
     this.message('');
   };
 
+  /**
+   * Hand the finished reading back and shut the scanner down.
+   *
+   * This went missing with the Gemini scanner in 602001d and stayed missing for
+   * five commits, on the published branch too, because nothing reaches it until
+   * the sixth and last photo. It did not look like a missing function. It looked
+   * like three separate bugs: the outline froze on the video, the scanner would
+   * not close, and the cube could not be solved — because finish() sets `busy`
+   * and disables the buttons before calling this, so the throw left the live
+   * loop stopped and the modal open.
+   *
+   * Closing comes first, so the camera light goes out before the page's handler
+   * runs; the handler sits in a `finally` so a failure to close still gets the
+   * colours through.
+   */
+  Scanner.prototype.done = function (result) {
+    this.busy = false;
+    this.el.capture.disabled = false;      // finish() disabled it before reading
+    try {
+      this.close(false);
+    } finally {
+      if (this.opts.onDone) this.opts.onDone(result);
+    }
+  };
+
   Scanner.prototype.finish = function () {
     this.busy = true;
     this.el.capture.disabled = true;
