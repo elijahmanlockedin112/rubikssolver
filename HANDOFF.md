@@ -35,6 +35,10 @@ This machine has no global git identity, so commits are made with
 identification, the 96-sticker map and the 3D view all work; scanning a 4x4 lands
 correctly on the map. Pressing solve refuses with an explanation.
 
+Of the solver itself, the colour scheme and the centres are done and tested
+(`js/solver4.js`, `test/solver4.test.js`); edge pairing is not. `Solver4.solve()`
+refuses and says how far it got. See "Where the 4x4 solver actually is" below.
+
 | File | Does |
 | --- | --- |
 | `js/cube.js` | 3x3: 54 facelets, six moves as permutations, validator that explains *why* a cube is impossible |
@@ -61,6 +65,58 @@ Reduction method:
 
 Expect ~70-120 moves. There is no practical optimal 4x4 solver, so "fewest moves"
 does not apply at this size.
+
+## Where the 4x4 solver actually is
+
+`js/solver4.js`. Done and under test:
+
+- **The colour scheme.** A 4x4 has no fixed centre, so which colour belongs on
+  which face has to be read off the corners: two colours are opposite exactly
+  when no corner shows both. Seed it from the corner *at the U-R-F position*,
+  read U, R, F. Seeding from any other corner also gives a valid scheme and the
+  centres will happily solve to it — but it is the cube's own scheme turned a
+  quarter round, and no moves can turn a cube's faces into different faces, so
+  nothing complains until the 3x3 stage cannot finish.
+- **The centres.** Measured over 60 random cubes: solved 60/60, 14-20 moves
+  (median 17), 21-941ms (median 172).
+
+Both centre stages are meet-in-the-middle searches over a *projection* — only the
+stickers that stage cares about. Measured sizes: U+D together is ~51M states with
+diameter 8; the four side centres are ~63M with diameter ~11. Each half of the
+search therefore only reaches depth 4-6, a few hundred thousand states.
+
+U and D have to be solved **together**. A face turn only spins its own centres on
+the spot, so only slices move a centre between faces, and an x- or z-axis slice
+drags two of U's centre slots with it. So no move set both moves centres between
+faces and leaves a finished U and D alone — the last two opposite faces can never
+be done one after the other.
+
+### Edge pairing — not built, and what is already known
+
+Do not re-derive these; each was measured in the model.
+
+- **Outer face turns are free.** They keep solid centres solid, and they map an
+  edge's pair of wing slots onto another edge's pair, so they can never break a
+  pair already made. Every setup move can be one.
+- **Only a slice can make a new pair**, and a slice alone wrecks the centres. A
+  sandwich `s A s'` restores them exactly when `A` turns each side face a net
+  whole turn — which is why `u' R U R' F R' F' R u` is centre-safe (R: +1-1-1+1,
+  F: +1-1) and `u R2 u'` is not.
+- **Searching for the pairs the way the centres were searched does not work.** A
+  projection is only valid when its slots are closed under the moves, and
+  "the centres, the edges already paired, and the one being built" is not: a move
+  carries a tracked facelet to an untracked one, and the search silently returns
+  nonsense. Closing it means all 48 edge facelets, and then the goal stops being
+  a single state — exactly what meet-in-the-middle needs. Pairing must be done by
+  algorithm, not by search.
+- **A usable algorithm exists.** `U2 r l' U2 l r'` keeps the centres solid, moves
+  no corner at all, and disturbs only six wings. Found by sweeping all 1116x1116
+  commutators [A,B] with A and B up to two moves; nothing in that family touches
+  fewer than six wings.
+
+What is left is the textbook method's bookkeeping: keeping finished pairs out of
+the slice being worked, and the last few edges, which need their own case. Then
+the 3x3 handoff and the two parity algorithms.
 
 ## Lessons already paid for — do not relearn these
 
