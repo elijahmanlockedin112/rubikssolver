@@ -649,7 +649,7 @@
     var scheme = schemeOf(state);
     if (!scheme.ok) return { ok: false, message: scheme.message };
 
-    var fast = solveViaThreePhase(state);
+    var fast = solveViaThreePhase(state, scheme);
     if (fast) return fast;
 
     var slow = solveByReduction(state, scheme);
@@ -664,12 +664,23 @@
     return threePhaseLib;
   }
 
-  function solveViaThreePhase(state) {
+  /*
+   * The three-phase solver reads a cube by its face numbers, not by whatever
+   * numbers the colours happen to carry: it decides which sticker is a U or D
+   * one by testing the value against 0 and 3, and matches every edge against a
+   * table of face indices. A scanned cube arrives numbered by palette slot
+   * instead, so handing it over unnormalised builds a cube out of nonsense —
+   * and phase 1, looking for a position that cannot exist, searches until the
+   * page is dead. That is what froze the app on a real scan while every test
+   * passed, because the tests all built their cubes from the solved state,
+   * where the two numberings happen to agree.
+   */
+  function solveViaThreePhase(state, scheme) {
     var lib = threePhase();
     if (!lib || !lib.solve) return null;
     var found;
     try {
-      found = lib.solve(state);
+      found = lib.solve(normalise(state, scheme));
     } catch (e) {
       return null;                        // fall back rather than fail outright
     }

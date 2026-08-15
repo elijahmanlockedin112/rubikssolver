@@ -89,6 +89,37 @@ check('solutions stay near the length this solver is meant to give', longest <= 
 // Measured over 50 cubes: median 409ms, 95th percentile 710ms, worst 828ms.
 check('a cube is solved in about the time the original takes', slowest <= 8000, 'slowest was ' + slowest + 'ms');
 
+console.log('\nrefusing rather than hanging');
+
+/*
+ * This solver reads a cube by face number and, given anything else, will search
+ * for a position that cannot exist. It runs on the page's own thread, so that
+ * is not a slow answer — it is a dead tab, which is exactly what a real scan
+ * produced. It has to say no, quickly.
+ */
+check('a cube whose colours are not face numbers comes back rather than hunting', (function () {
+  var start = cube.applySeq(cube.SOLVED, cube.randomScramble(40));
+  var labels = [4, 2, 0, 5, 1, 3];
+  var relabelled = new Uint8Array(96);
+  for (var i = 0; i < 96; i++) relabelled[i] = labels[start[i]];
+  var began = Date.now();
+  TPR.solve(relabelled);
+  return Date.now() - began < 5000;
+})());
+
+check('a cube with the wrong number of each colour is refused', (function () {
+  var broken = new Uint8Array(96);
+  for (var i = 0; i < 96; i++) broken[i] = i % 5;      // five colours, not six
+  var began = Date.now();
+  return TPR.solve(broken) === null && Date.now() - began < 5000;
+})());
+
+check('a colour outside 0-5 is refused', (function () {
+  var bad = Uint8Array.from(cube.applySeq(cube.SOLVED, cube.randomScramble(40)));
+  bad[0] = 9;
+  return TPR.solve(bad) === null;
+})());
+
 console.log('\nwide turns');
 
 check('a wide turn becomes the face turn and the slice under it', (function () {

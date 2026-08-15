@@ -171,6 +171,53 @@ check('the solution stays a sensible length', longest <= 150, 'longest was ' + l
 // the bar stays high enough to cover it rather than only the fast path.
 check('a cube is always solved in bounded time', slowest <= 40000, 'slowest was ' + slowest + 'ms');
 
+console.log('\ncubes numbered the way a scan numbers them');
+
+/*
+ * Every test above builds its cube from the solved state, where a sticker's
+ * number happens to equal the face it belongs on. A scanned cube is not like
+ * that: its numbers are palette slots, in whatever order the scanner met the
+ * colours. The three-phase solver reads a cube by face number — it decides
+ * which stickers are U and D by testing against 0 and 3 — so handing it a
+ * scanned cube unnormalised builds a cube out of nonsense, and its first phase
+ * hunts for a position that cannot exist until the page is dead.
+ *
+ * That is exactly what happened on a real scan while this whole suite was
+ * green, so these solve the same cubes with their colours renumbered.
+ */
+function shuffledLabels() {
+  var a = [0, 1, 2, 3, 4, 5];
+  for (var i = 5; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
+var scanSolved = 0, scanTried = 0, scanSlowest = 0;
+for (var r2 = 0; r2 < Math.min(trials, 12); r2++) {
+  var labels = shuffledLabels();
+  var truth = scrambled();
+  var asScanned = new Uint8Array(truth.length);
+  for (var i2 = 0; i2 < truth.length; i2++) asScanned[i2] = labels[truth[i2]];
+  scanTried++;
+  var began2 = Date.now();
+  var got = S4.solve(asScanned);
+  var took2 = Date.now() - began2;
+  if (took2 > scanSlowest) scanSlowest = took2;
+  if (!got.ok) continue;
+  var after = cube.applySeq(asScanned, got.moves);
+  var allOne = true;
+  for (var f4 = 0; f4 < 6; f4++) {
+    for (var k4 = 0; k4 < per; k4++) if (after[f4 * per + k4] !== after[f4 * per]) allOne = false;
+  }
+  if (allOne) scanSolved++;
+}
+console.log('  ' + scanTried + ' cubes with renumbered colours: ' + scanSolved + ' solved, slowest ' + scanSlowest + 'ms');
+check('a cube numbered the way a scan numbers it still solves', scanSolved === scanTried,
+  scanSolved + '/' + scanTried);
+check('and does not sit there thinking about it', scanSlowest <= 40000, scanSlowest + 'ms');
+
 console.log('\nrefusing what cannot be solved');
 
 check('an impossible cube is refused with a reason, not solved', (function () {

@@ -1389,11 +1389,50 @@
 
   /**
    * Solve, given the 96 stickers as face indices (0-5 for U R F D L B) in the
-   * same order cuben.js uses. Returns a list of move indices into move2str, or
-   * null if the cube cannot be read as a real one.
+   * same order cuben.js uses — NOT whatever numbers a scan gave the colours.
+   * Returns a list of move indices into move2str, or null if the cube cannot be
+   * read as a real one.
    */
   Search.prototype.solveFacelet = function (facelet) {
-    this.c = FullCube.fromFacelet(facelet);
+    for (var i = 0; i < 96; i++) {
+      if (facelet[i] < 0 || facelet[i] > 5) return null;
+    }
+    // Sixteen of each, or this is not a cube and the search below has nothing
+    // to find. Refusing here costs nothing; not refusing costs the whole page.
+    var tally = [0, 0, 0, 0, 0, 0];
+    for (var i = 0; i < 96; i++) tally[facelet[i]]++;
+    for (var f = 0; f < 6; f++) if (tally[f] !== 16) return null;
+
+    var c = FullCube.fromFacelet(facelet);
+
+    /*
+     * Reading the cube has to succeed before searching it.
+     *
+     * fromFacelet identifies each edge and corner by matching its colours
+     * against a table of face numbers. Handed a cube numbered any other way it
+     * matches nothing, quietly leaves those pieces at zero, and produces a cube
+     * with the same piece many times over. The phases then hunt for a position
+     * that does not exist — and bounding phase 1 alone is not enough, because a
+     * relabelled cube still has a perfectly ordinary-looking centre pattern and
+     * sails through it. Every piece has to appear exactly once, or this is not
+     * a cube and the honest answer is no.
+     */
+    var seenEdge = new Uint8Array(24), seenCorner = new Uint8Array(8);
+    for (var i = 0; i < 24; i++) {
+      var e = c.edge.ep[i];
+      if (e < 0 || e > 23 || seenEdge[e]) return null;
+      seenEdge[e] = 1;
+    }
+    var twist = 0;
+    for (var i = 0; i < 8; i++) {
+      var p = c.corner.cp[i];
+      if (p < 0 || p > 7 || seenCorner[p]) return null;
+      seenCorner[p] = 1;
+      twist += c.corner.co[i];
+    }
+    if (twist % 3 !== 0) return null;          // no intact cube has a lone twisted corner
+
+    this.c = c;
     return this.doSearch();
   };
 
@@ -1409,13 +1448,36 @@
     this.arr2idx = 0;
     this.p1sols.clear();
 
-    for (this.length1 = Math.min(udprun, fbprun, rlprun); this.length1 < 100; this.length1++) {
+    /*
+     * The original lets phase 1 go to 100, which is fine when the cube is real:
+     * it never needs more than about ten. Given a cube that cannot exist the
+     * same loop keeps deepening and never comes back, and since this runs on
+     * the page's own thread that is not a slow solve, it is a dead tab. Real
+     * solutions are nowhere near this bound, so stopping at it only ever ends a
+     * search that was never going to finish.
+     */
+    /*
+     * Every phase gets a ceiling.
+     *
+     * The original lets each of them run to 100, which is fine for a cube that
+     * can be solved: the three of them together come to about 45. This runs on
+     * the page's own thread, though, so a search that cannot finish is not a
+     * slow answer, it is a dead tab — and the piece check above cannot be the
+     * only guard, because it is the last line of defence rather than the first.
+     * Real solutions are nowhere near these numbers, so hitting one only ever
+     * ends a search that was never going to come back.
+     */
+    var PHASE1_LIMIT = 20, PHASE2_LIMIT = 45, PHASE3_LIMIT = 60;
+    var got1 = false;
+    for (this.length1 = Math.min(udprun, fbprun, rlprun); this.length1 < PHASE1_LIMIT; this.length1++) {
       if ((rlprun <= this.length1 && this.search1(rl >>> 6, rl & 0x3f, this.length1, -1, 0)) ||
           (udprun <= this.length1 && this.search1(ud >>> 6, ud & 0x3f, this.length1, -1, 0)) ||
           (fbprun <= this.length1 && this.search1(fb >>> 6, fb & 0x3f, this.length1, -1, 0))) {
+        got1 = true;
         break;
       }
     }
+    if (!got1 && !this.p1sols.size()) return null;
 
     var p1SolsArr = this.p1sols.a.slice();
     p1SolsArr.sort(function (a, b) { return a.value - b.value; });
@@ -1424,7 +1486,7 @@
     var MAX_LENGTH2 = 9, length12, solved2 = false;
     for (var round = 0; round < 8 && !solved2; round++) {
       OUT2:
-      for (length12 = p1SolsArr[0].value; length12 < 100; length12++) {
+      for (length12 = p1SolsArr[0].value; length12 < PHASE2_LIMIT; length12++) {
         for (var i = 0; i < p1SolsArr.length; i++) {
           if (p1SolsArr[i].value > length12) break;
           if (length12 - p1SolsArr[i].length1 > MAX_LENGTH2) continue;
@@ -1459,7 +1521,7 @@
     var MAX_LENGTH3 = 13;
     for (var round = 0; round < 8 && !solved3; round++) {
       OUT3:
-      for (length123 = arr2[0].value; length123 < 100; length123++) {
+      for (length123 = arr2[0].value; length123 < PHASE3_LIMIT; length123++) {
         for (var i = 0; i < Math.min(arr2.length, PHASE3_ATTEMPTS); i++) {
           if (arr2[i].value > length123) break;
           if (length123 - arr2[i].length1 - arr2[i].length2 > MAX_LENGTH3) continue;

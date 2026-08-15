@@ -263,7 +263,30 @@
     'F2': ['Front face', 'Turn the front face half way around (either direction).'],
     'B': ['Back face', 'Turn the back face so its top row slides to your LEFT.'],
     "B'": ['Back face', 'Turn the back face so its top row slides to your RIGHT.'],
-    'B2': ['Back face', 'Turn the back face half way around (either direction).']
+    'B2': ['Back face', 'Turn the back face half way around (either direction).'],
+
+    // A 4x4 also turns the layers just under each face. These never came up on
+    // a 3x3, so they had no entry — and describe() read [0] off the missing one
+    // and threw, inside the render loop's callback, which killed the loop for
+    // good. One cube froze mid-solution while the other carried on moving.
+    'u': ['Second layer from the top', 'Turn the slice just UNDER the top layer the same way you would turn the top: the front of it slides to your LEFT. The top layer itself does not move.'],
+    "u'": ['Second layer from the top', 'Turn the slice just under the top layer so its front slides to your RIGHT. The top layer itself does not move.'],
+    'u2': ['Second layer from the top', 'Turn the slice just under the top layer half way around. The top layer itself does not move.'],
+    'd': ['Second layer from the bottom', 'Turn the slice just ABOVE the bottom layer the way you would turn the bottom: its front slides to your RIGHT. The bottom layer itself does not move.'],
+    "d'": ['Second layer from the bottom', 'Turn the slice just above the bottom layer so its front slides to your LEFT. The bottom layer itself does not move.'],
+    'd2': ['Second layer from the bottom', 'Turn the slice just above the bottom layer half way around. The bottom layer itself does not move.'],
+    'r': ['Second layer from the right', 'Turn the slice just INSIDE the right face the same way you would turn that face: its front edge lifts UP. The right face itself does not move.'],
+    "r'": ['Second layer from the right', 'Turn the slice just inside the right face so its front edge drops DOWN. The right face itself does not move.'],
+    'r2': ['Second layer from the right', 'Turn the slice just inside the right face half way around. The right face itself does not move.'],
+    'l': ['Second layer from the left', 'Turn the slice just INSIDE the left face the same way you would turn that face: its front edge drops DOWN. The left face itself does not move.'],
+    "l'": ['Second layer from the left', 'Turn the slice just inside the left face so its front edge lifts UP. The left face itself does not move.'],
+    'l2': ['Second layer from the left', 'Turn the slice just inside the left face half way around. The left face itself does not move.'],
+    'f': ['Second layer from the front', 'Turn the slice just BEHIND the front face the same way you would turn that face: its top row slides RIGHT. The front face itself does not move.'],
+    "f'": ['Second layer from the front', 'Turn the slice just behind the front face so its top row slides LEFT. The front face itself does not move.'],
+    'f2': ['Second layer from the front', 'Turn the slice just behind the front face half way around. The front face itself does not move.'],
+    'b': ['Second layer from the back', 'Turn the slice just IN FRONT of the back face the way you would turn that face: its top row slides LEFT. The back face itself does not move.'],
+    "b'": ['Second layer from the back', 'Turn the slice just in front of the back face so its top row slides RIGHT. The back face itself does not move.'],
+    'b2': ['Second layer from the back', 'Turn the slice just in front of the back face half way around. The back face itself does not move.']
   };
 
   function faceColorName(letter) {
@@ -272,9 +295,20 @@
     return c < 0 ? '' : COLOR_NAMES[c];
   }
 
+  /**
+   * Describe a move in words.
+   *
+   * This runs from inside the 3D view's animation callback, so anything it
+   * throws takes the render loop down with it and the cube stops mid-solution.
+   * An unknown move now falls back to its notation rather than being an
+   * exception — worse to read, but the player keeps going.
+   */
   function describe(move) {
     var text = MOVE_TEXT[move];
-    var name = faceColorName(move[0]);
+    if (!text) text = [move, 'Turn the layer this move names.'];
+    // Only a 3x3 has a fixed centre to name a face by, and only an outer face
+    // turn names one at all.
+    var name = (size === 3 && move[0] === move[0].toUpperCase()) ? faceColorName(move[0]) : '';
     return {
       title: text[0] + (name ? ' (' + name + ')' : ''),
       detail: text[1],

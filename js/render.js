@@ -58,8 +58,21 @@
     this.onStickerPick = opts.onStickerPick || null;
 
     var self = this;
+    /*
+     * Keep asking for the next frame even if this one went wrong.
+     *
+     * The loop schedules itself, so anything thrown out of tick() used to end
+     * it permanently — and tick() calls the page's own move-finished callback,
+     * so a bug anywhere in that stopped the cube dead partway through a
+     * solution while the other view, which has no callback, carried on turning.
+     * A frame that fails should cost that frame, not the animation.
+     */
     this.loop = function () {
-      self.tick();
+      try {
+        self.tick();
+      } catch (err) {
+        if (typeof console !== 'undefined' && console.error) console.error('cube view frame failed:', err);
+      }
       self.raf = requestAnimationFrame(self.loop);
     };
     this.raf = requestAnimationFrame(this.loop);
