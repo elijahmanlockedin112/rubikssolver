@@ -13,6 +13,7 @@ var http = require('http');
 var fs = require('fs');
 var path = require('path');
 var Gemini = require('./gemini.js');
+var Png = require('./png.js');
 
 var root = path.join(__dirname, '..');
 var port = process.env.PORT || 8123;
@@ -207,6 +208,33 @@ var server = http.createServer(function (req, res) {
     }).catch(function (err) {
       console.error('  /api/scan failed:', err.message);
       sendJson(res, 502, { error: 'scan-failed', message: err.message });
+    });
+    return;
+  }
+
+  // Save a frame the detector could not read, so it can be worked on offline.
+  // Everything stays on this machine, in ./testdata (gitignored).
+  if (url === '/api/debug-shot') {
+    if (req.method !== 'POST') { sendJson(res, 405, { error: 'POST only' }); return; }
+    readBody(req, 32 * 1024 * 1024).then(function (raw) {
+      var body = JSON.parse(raw);
+      var w = body.width | 0, h = body.height | 0;
+      var rgba = Buffer.from(body.data, 'base64');
+      if (!w || !h || rgba.length < w * h * 4) throw new Error('bad frame');
+
+      var dir = path.join(root, 'testdata');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+      var stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      var name = 'shot-' + stamp + (body.label ? '-' + String(body.label).replace(/[^a-z0-9]/gi, '') : '');
+
+      fs.writeFileSync(path.join(dir, name + '.png'),
+        Png.encodePng(w, h, Png.rgbaToRgb(rgba, w, h)));
+      fs.writeFileSync(path.join(dir, name + '.json'),
+        JSON.stringify({ width: w, height: h, note: body.note || null, data: body.data }));
+      console.log('  saved a diagnostic frame: testdata/' + name + '.png');
+      sendJson(res, 200, { saved: name });
+    }).catch(function (err) {
+      sendJson(res, 400, { error: err.message });
     });
     return;
   }

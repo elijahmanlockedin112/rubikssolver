@@ -16,3 +16,6 @@ desktop.ini
 # scratch
 *.log
 tmp/
+
+# diagnostic frames saved by the scanner
+testdata/

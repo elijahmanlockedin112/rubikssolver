@@ -77,6 +77,18 @@
     return v;
   }
 
+  /** The value below which `fraction` of the samples fall. */
+  function percentile(values, fraction) {
+    var hist = new Float64Array(256);
+    for (var i = 0; i < values.length; i++) hist[values[i]]++;
+    var target = values.length * fraction, running = 0;
+    for (var v = 0; v < 256; v++) {
+      running += hist[v];
+      if (running >= target) return v;
+    }
+    return 255;
+  }
+
   /** Sobel magnitude, used to keep touching regions from merging into one blob. */
   function gradient(v, w, h) {
     var g = new Uint8Array(w * h);
@@ -130,11 +142,12 @@
   function plausibleStickers(blobs, w, h) {
     var frame = w * h;
     return blobs.filter(function (b) {
-      if (b.area < 20 || b.area > frame * 0.14) return false;
+      if (b.area < 14 || b.area > frame * 0.16) return false;
       var aspect = b.w / b.h;
-      // a sticker is square-ish; anything long is two merged cells or clutter
-      if (aspect < 0.62 || aspect > 1.6) return false;
-      if (b.area / (b.w * b.h) < 0.62) return false;   // roughly convex/rectangular
+      // A sticker is square-ish, though perspective squashes the far ones and
+      // a highlight can eat a corner, so this is looser than it looks.
+      if (aspect < 0.5 || aspect > 2) return false;
+      if (b.area / (b.w * b.h) < 0.5) return false;   // roughly convex/rectangular
       return true;
     });
   }
@@ -205,6 +218,46 @@
       }
     }
     return best;
+  }
+
+  /**
+   * Re-fit the lattice to the blobs it matched, this time letting the two step
+   * vectors move independently. A cube face photographed at an angle is a
+   * trapezoid; insisting on a square one costs matches around its far edge.
+   */
+  function refine(lattice, cells) {
+    var points = [];
+    for (var r = 0; r < 3; r++) {
+      for (var c = 0; c < 3; c++) {
+        var px = lattice.ox + c * lattice.vx + r * lattice.wx;
+        var py = lattice.oy + c * lattice.vy + r * lattice.wy;
+        var bestK = -1, bestD = lattice.step * 0.42;
+        for (var k = 0; k < cells.length; k++) {
+          var d = Math.hypot(cells[k].cx - px, cells[k].cy - py);
+          if (d < bestD) { bestD = d; bestK = k; }
+        }
+        if (bestK >= 0) points.push({ row: r, col: c, x: cells[bestK].cx, y: cells[bestK].cy });
+      }
+    }
+    if (points.length < 6) return null;
+    var fit = fitAffine(points);
+    if (!fit) return null;
+
+    var origin = fit.at(0, 0), right = fit.at(0, 1), down = fit.at(1, 0);
+    var vx = right.x - origin.x, vy = right.y - origin.y;
+    var wx = down.x - origin.x, wy = down.y - origin.y;
+
+    // Refuse a fit that has folded over on itself: the row direction must stay
+    // on the same side of the column direction, or the face comes out mirrored.
+    if (vx * wy - vy * wx <= 0) return null;
+    var stepV = Math.hypot(vx, vy), stepW = Math.hypot(wx, wy);
+    if (stepV < 4 || stepW < 4) return null;
+    if (stepV / stepW < 0.5 || stepV / stepW > 2) return null;
+
+    return {
+      ox: origin.x, oy: origin.y, vx: vx, vy: vy, wx: wx, wy: wy,
+      matched: points.length, step: (stepV + stepW) / 2
+    };
   }
 
   /**
@@ -434,13 +487,16 @@
    */
   function detectFace(img, opts) {
     opts = opts || {};
+    var debug = opts.debug ? { stage: 'start' } : null;
     var small = downscale(img, opts.workSize || WORK_SIZE);
     var v = brightness(small);
-    // Otsu picks the dark/light split, but a bright background can drag it up
-    // until dark stickers (blue especially) get mistaken for plastic, so cap it.
-    var cut = Math.max(28, Math.min(otsu(v), 96));
     var grad = gradient(v, small.width, small.height);
-    var gradCut = opts.edge || 34;
+
+    // Both thresholds are relative to this photo rather than fixed numbers.
+    // A fixed brightness cut throws away dark stickers in a dim room; a fixed
+    // edge cut throws away sticker interiors in a noisy one.
+    var cut = Math.min(otsu(v), percentile(v, opts.darkest === undefined ? 0.3 : opts.darkest));
+    var gradCut = opts.edge || Math.max(10, Math.min(60, percentile(grad, 0.72)));
 
     var mask = new Uint8Array(small.width * small.height);
     for (var i = 0; i < mask.length; i++) {
@@ -449,7 +505,18 @@
 
     var blobs = findBlobs(mask, small.width, small.height);
     var candidates = plausibleStickers(blobs, small.width, small.height);
-    if (candidates.length < 6) return null;
+    if (debug) {
+      debug.size = small.width + 'x' + small.height;
+      debug.brightnessCut = cut;
+      debug.edgeCut = gradCut;
+      debug.blobs = blobs.length;
+      debug.candidates = candidates.length;
+      debug.candidateAreas = candidates.map(function (c) { return Math.round(c.area); }).sort(function (a, b) { return b - a; }).slice(0, 12);
+    }
+    if (candidates.length < 6) {
+      if (debug) { debug.stage = 'too few sticker-shaped patches'; return { failed: true, debug: debug }; }
+      return null;
+    }
 
     // keep the search cheap: the cells all look about the same size
     if (candidates.length > 30) {
@@ -461,8 +528,24 @@
     }
 
     var lattice = hypothesiseLattice(candidates);
-    if (!lattice) return null;
-    if (!looksLikeACube(v, small.width, small.height, lattice)) return null;
+    if (debug) debug.lattice = lattice ? { matched: lattice.matched, step: Math.round(lattice.step) } : null;
+    if (!lattice) {
+      if (debug) { debug.stage = 'no 3x3 grid among those patches'; return { failed: true, debug: debug }; }
+      return null;
+    }
+
+    // A face seen at an angle is a trapezoid, not a square. The hypothesis
+    // above is deliberately rigid so it can be found at all; relax it to a
+    // full affine fit of whatever it matched, which absorbs the perspective.
+    lattice = refine(lattice, candidates) || lattice;
+
+    var verified = looksLikeACube(v, small.width, small.height, lattice);
+    if (debug) debug.seamCheck = verified;
+    if (!verified) {
+      if (debug) { debug.stage = 'grid found but the seams are not darker than the stickers'; return { failed: true, debug: debug }; }
+      return null;
+    }
+    if (debug) debug.stage = 'ok';
 
     var inv = 1 / small.scale;
     var points = [];
@@ -486,12 +569,53 @@
 
     return {
       samples: samples, points: points, quad: corners,
-      found: lattice.matched, step: lattice.step * inv
+      found: lattice.matched, step: lattice.step * inv,
+      debug: debug
     };
+  }
+
+  /**
+   * A picture of what the detector had to work with: the mask it built, with
+   * every blob it considered sticker-shaped tinted green. Far quicker to read
+   * than a page of numbers when a real photo will not detect.
+   */
+  function debugMask(img, opts) {
+    opts = opts || {};
+    var small = downscale(img, opts.workSize || WORK_SIZE);
+    var v = brightness(small);
+    var grad = gradient(v, small.width, small.height);
+    var cut = Math.min(otsu(v), percentile(v, opts.darkest === undefined ? 0.3 : opts.darkest));
+    var gradCut = opts.edge || Math.max(10, Math.min(60, percentile(grad, 0.72)));
+
+    var mask = new Uint8Array(small.width * small.height);
+    for (var i = 0; i < mask.length; i++) mask[i] = (v[i] > cut && grad[i] < gradCut) ? 1 : 0;
+
+    var kept = {};
+    plausibleStickers(findBlobs(mask, small.width, small.height), small.width, small.height)
+      .forEach(function (b) { kept[Math.round(b.cx) + ',' + Math.round(b.cy)] = b; });
+
+    var rgb = Buffer.alloc(small.width * small.height * 3);
+    for (var p = 0; p < mask.length; p++) {
+      var shade = mask[p] ? 210 : 30;
+      rgb[p * 3] = shade; rgb[p * 3 + 1] = shade; rgb[p * 3 + 2] = shade;
+    }
+    Object.keys(kept).forEach(function (key) {
+      var b = kept[key];
+      var x0 = Math.max(0, Math.round(b.cx - b.w / 2)), x1 = Math.min(small.width - 1, Math.round(b.cx + b.w / 2));
+      var y0 = Math.max(0, Math.round(b.cy - b.h / 2)), y1 = Math.min(small.height - 1, Math.round(b.cy + b.h / 2));
+      for (var x = x0; x <= x1; x++) {
+        [y0, y1].forEach(function (y) { var o = (y * small.width + x) * 3; rgb[o] = 40; rgb[o + 1] = 230; rgb[o + 2] = 120; });
+      }
+      for (var y = y0; y <= y1; y++) {
+        [x0, x1].forEach(function (x) { var o = (y * small.width + x) * 3; rgb[o] = 40; rgb[o + 1] = 230; rgb[o + 2] = 120; });
+      }
+    });
+    return { width: small.width, height: small.height, rgb: rgb };
   }
 
   var api = {
     detectFace: detectFace,
+    debugMask: typeof Buffer === 'undefined' ? null : debugMask,
     _internals: {
       downscale: downscale, otsu: otsu, findBlobs: findBlobs,
       fitGrid: fitGrid, splitIntoThree: splitIntoThree, latticeAngle: latticeAngle

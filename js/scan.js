@@ -205,9 +205,9 @@
     if (!frame) { this.message('The camera is not ready yet.', true); return; }
 
     var found = CubeDetect.detectFace(frame);
-    if (!found) {
-      this.message('Could not find a cube face in that shot. Get the face square-ish to the ' +
-        'camera, fill more of the frame, and try again.', true);
+    if (!found || found.failed) {
+      var why = CubeDetect.detectFace(frame, { debug: true });
+      this.reportMiss(frame, why && why.debug);
       return;
     }
 
@@ -227,6 +227,49 @@
     if (this.samples.length >= 6) { this.finish(); return; }
     this.render();
     this.message('Got it — ' + (6 - this.samples.length) + ' to go.');
+  };
+
+  /**
+   * A shot the detector could not read. Say what it actually saw, and — since
+   * this is exactly the case that is impossible to debug from a description —
+   * post the frame back to the local server, which writes it to ./testdata on
+   * this machine. Nothing leaves the machine.
+   */
+  Scanner.prototype.reportMiss = function (frame, debug) {
+    var reason = debug && debug.stage ? debug.stage : 'no cube face in that shot';
+    var advice = 'Fill more of the frame with one face, get more even light, and keep the ' +
+      'face roughly square to the camera.';
+    if (debug && debug.candidates !== undefined && debug.candidates < 6) {
+      advice = 'It only picked out ' + debug.candidates + ' sticker-shaped patches. Try more ' +
+        'light, less glare, and holding the cube closer.';
+    }
+    this.message(reason + '. ' + advice, true);
+    this.misses = (this.misses || 0) + 1;
+
+    // downscale before sending; the detector never sees more than this anyway
+    var w = frame.width, h = frame.height;
+    var scale = Math.min(1, 640 / Math.max(w, h));
+    var sw = Math.round(w * scale), sh = Math.round(h * scale);
+    var tmp = document.createElement('canvas');
+    tmp.width = sw; tmp.height = sh;
+    var tctx = tmp.getContext('2d');
+    tctx.drawImage(this.el.canvas, 0, 0, sw, sh);
+    var shrunk = tctx.getImageData(0, 0, sw, sh);
+
+    var bytes = new Uint8Array(shrunk.data.buffer);
+    var binary = '';
+    for (var i = 0; i < bytes.length; i += 8192) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    }
+    fetch('api/debug-shot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        width: sw, height: sh, label: 'miss' + this.misses,
+        note: JSON.stringify(debug || {}),
+        data: btoa(binary)
+      })
+    }).catch(function () { /* diagnosis is a bonus, never a blocker */ });
   };
 
   Scanner.prototype.undo = function () {
