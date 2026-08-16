@@ -26,6 +26,12 @@
   var PREVIEW_EDGE = 320;   // the live overlay searches a copy this size
   var CAPTURE_EDGE = 900;   // stills are kept this big for colour sampling
   var LIVE_INTERVAL = 180;  // ms between live detections
+  /*
+   * Below this, two readings are the same face. The same bar the rearm uses,
+   * and measured against real faces of real cubes in test/autosnap.test.js:
+   * two genuinely different faces of a 2x2 have come as close as 12.
+   */
+  var DUPLICATE_GAP = 10;
 
   function Scanner(opts) {
     this.opts = opts || {};
@@ -72,6 +78,7 @@
     this.guide = null;
     this.stream = null;
     this.busy = false;
+    this.warned = null;
     this.lastLive = 0;
     this.locked = null;  // most recent live detection, for the overlay
 
@@ -489,20 +496,41 @@
     // Every face has to be the same size as the first one.
     if (!this.size) this.size = found.size;
 
-    // A 3x3 has a fixed centre sticker, so a repeated face can be spotted the
-    // moment it is taken. A 4x4 has no such sticker, so there is nothing to
-    // compare and the check simply does not apply.
+    /*
+     * The same face twice, caught now rather than at the end.
+     *
+     * A 3x3 is named by its centre sticker, which never moves, so a repeat is
+     * obvious the moment it is taken. A 2x2 and a 4x4 have no such sticker —
+     * and until this, they had no check at all. The rearm is deliberately the
+     * forgiving one of the two tests (see autosnap.js), so a second photo of
+     * the face you are still holding does get through now and then; on a 3x3
+     * it was refused politely here, and on a 2x2 it was accepted in silence.
+     * Six photos later the assembler would report that they did not add up to
+     * a real cube, which is true, useless, and blames the wrong thing.
+     *
+     * So every size is checked, whole face against whole face, under all four
+     * rotations. A 2x2 is where it matters most and where it is hardest: four
+     * stickers is the least a face can be told apart by, and two faces of one
+     * cube have been measured as close as 12 against this bar of 10.
+     */
     var center = this.size === 3 ? found.samples[4] : null;
-    if (center) {
-      for (var i = 0; i < this.centers.length; i++) {
-        if (CubeAssemble.colorCost(center, this.centers[i]) < 12) {
-          // disarmed against this face, so it waits for the cube to be turned
-          this.auto.captured(found.samples, found.size, now);
-          this.message('That is the same face as photo ' + (i + 1) + '. Turn the cube to a face you ' +
-            'have not done yet.', true);
-          return;
-        }
+    var twin = this.sameFaceAlreadyTaken(found.samples, center);
+    if (twin >= 0) {
+      // disarmed against this face, so it waits for the cube to be turned
+      this.auto.captured(found.samples, found.size, now);
+      if (fromAuto) {
+        this.message('That is the same face as photo ' + (twin + 1) + '. Turn the cube to a face you ' +
+          'have not done yet.', true);
+        return;
       }
+      /*
+       * A pressed button is not a guess. Two faces of a 2x2 really can read
+       * alike, and refusing a deliberate Snap would leave someone holding a
+       * face the scanner will not take and no way past it — so this says what
+       * it thinks and keeps the photo anyway.
+       */
+      this.warned = 'That looks like photo ' + (twin + 1) + ' again. Kept, because you pressed Snap — ' +
+        'if the cube will not go together at the end, redo that one.';
     }
 
     this.auto.captured(found.samples, found.size, now);
@@ -513,7 +541,8 @@
     if (this.samples.length >= 6) { this.finish(); return; }
     this.recordGuide(found.samples);
     this.render();
-    this.message('Got it — ' + (6 - this.samples.length) + ' to go.');
+    this.message(this.warned || ('Got it — ' + (6 - this.samples.length) + ' to go.'), !!this.warned);
+    this.warned = null;
     this.holdUntil = now + 1200;   // long enough to be read before the next prompt
   };
 
@@ -598,6 +627,46 @@
     this.render();
     this.message('');
   };
+
+  /**
+   * Has this face already been photographed? Returns which one, or -1.
+   *
+   * By its centre where there is one, and otherwise by the whole face compared
+   * under all four rotations — the same measure the rearm uses, because it is
+   * asking the same question: are these two pictures of one face?
+   */
+  Scanner.prototype.sameFaceAlreadyTaken = function (samples, center) {
+    var i;
+    if (center) {
+      for (i = 0; i < this.centers.length; i++) {
+        if (CubeAssemble.colorCost(center, this.centers[i]) < 12) return i;
+      }
+      return -1;
+    }
+    for (i = 0; i < this.samples.length; i++) {
+      if (this.samples[i].length !== samples.length) continue;
+      if (faceGap(samples, this.samples[i], this.size) < DUPLICATE_GAP) return i;
+    }
+    return -1;
+  };
+
+  /**
+   * How different two readings of a face are, at their most alike.
+   *
+   * A face photographed a quarter turn round is the same face, so the smallest
+   * of the four rotations is the answer — anything else would call a cube held
+   * slightly differently a new face.
+   */
+  function faceGap(a, b, N) {
+    var best = Infinity;
+    for (var k = 0; k < 4; k++) {
+      var turned = CubeAssemble4.rotateFace(b, N, k);
+      var sum = 0;
+      for (var i = 0; i < a.length; i++) sum += CubeAssemble.colorCost(a[i], turned[i]);
+      best = Math.min(best, sum / a.length);
+    }
+    return best;
+  }
 
   /** Just for the little captured-face chips, when there is no centre to show. */
   function averageColor(samples) {

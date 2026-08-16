@@ -348,61 +348,56 @@ test('the home screen is a cube, a size, a choice and Scan', async function ({ p
  * checked here, because those are the things that would quietly stop
  * appearing.
  */
-test('academy teaches seven stages on your own scramble', async function ({ page }) {
+test('academy teaches the beginner method on your own scramble', async function ({ page }) {
   await page.locator('.mode-option[data-mode="academy"]').click();
   await goToSolve(page);
 
-  // the method has seven stages whatever this particular cube needed
-  await expect(page.locator('.stage-dot')).toHaveCount(7);
-  await expect(page.locator('#stage-line')).toContainText('of 7');
+  /*
+   * The first thing it says is how to hold the cube. The whole method is
+   * written for white on the bottom, so the turn that puts it there comes
+   * before any stage, before any move — and the cube on screen is already
+   * showing the result, because matching a picture is the least ambiguous
+   * instruction there is.
+   */
+  await expect(page.locator('#stage-line')).toContainText(/Before you start/i);
+  await expect(page.locator('#move-detail')).toContainText(/white/i);
+  await expect(page.locator('#btn-next')).toHaveText(/what is first/i);
+  await page.locator('#btn-next').click();
 
-  // it opens on the lesson, not on a move
+  // eight stages, whatever this particular cube needed, starting at the daisy
+  await expect(page.locator('.stage-dot')).toHaveCount(8);
+  await expect(page.locator('#stage-line')).toContainText('of 8');
+  await expect(page.locator('#move-title')).toContainText(/daisy/i);
+
+  // and it opens each stage on the lesson, not on a move
   await expect(page.locator('#btn-next')).toHaveText(/Start this stage/);
   await expect(page.locator('#academy-note')).toBeVisible();
   var goal = await page.locator('#move-detail').textContent();
   expect(goal.length, 'the stage should say what it is for').toBeGreaterThan(30);
 
-  /*
-   * The cube on screen is drawn in the cube's own colours.
-   *
-   * This is not a paranoid assertion. The beginner solver works in solver
-   * space — a facelet holds a face number, not a palette colour — and handing
-   * those states straight to the renderer recolours every sticker on the cube
-   * while still looking like a perfectly plausible scramble. It shipped that
-   * way, and what gave it away was not the picture: it was Academy describing
-   * a piece as "the blue and green edge" on a cube whose bottom is yellow.
-   *
-   * So: the middle of the front face, against the front centre of the cube in
-   * localStorage. A centre sticker never moves on a 3x3, so this holds at any
-   * point in any solution.
-   */
-  // wait for the first painted frame — an unpainted canvas is transparent
-  // black, which is not a colour the cube has and would fail for the wrong
-  // reason
-  await page.waitForFunction(function () {
-    var c = document.getElementById('solve-front-canvas');
-    if (!c || !c.width) return false;
-    var d = c.getContext('2d').getImageData(Math.round(c.width * 0.5), Math.round(c.height * 0.65), 1, 1).data;
-    return d[3] > 200 && (d[0] + d[1] + d[2]) > 60;
-  }, null, { timeout: 10000 });
-
-  var colours = await page.evaluate(function () {
-    var c = document.getElementById('solve-front-canvas');
-    var d = c.getContext('2d').getImageData(Math.round(c.width * 0.5), Math.round(c.height * 0.65), 1, 1).data;
-    var hex = '#' + [d[0], d[1], d[2]].map(function (v) { return v.toString(16).padStart(2, '0'); }).join('');
-    var saved = JSON.parse(localStorage.getItem('rubiks-cube-coach.state'));
-    var PALETTE = ['#f4f5f7', '#ffd23f', '#00a651', '#0a58c2', '#d8283c', '#ff8c1a'];
-    return { drawn: hex, expected: PALETTE[saved[22]] };   // 22 is the front centre
-  });
-  expect(colours.drawn, 'the front centre is drawn ' + colours.drawn +
-    ', but the cube says ' + colours.expected).toBe(colours.expected);
-
   await page.locator('#btn-next').click();
   await expect(page.locator('#move-counter')).toHaveText(/Move 1 of/);
 
-  // the first three stages place four pieces each, and say which
+  // the piece stages place four pieces each, and say which
   await expect(page.locator('#academy-note')).toContainText(/Piece \d of \d/);
   await expect(page.locator('#stage-line')).toContainText(/·\s*\d+\/\d+/);
+
+  /*
+   * And the cross being built is the WHITE one.
+   *
+   * This is the whole point of turning the cube first, and it is checkable
+   * from the outside because the pieces are named by colour: every edge the
+   * daisy fetches is a white one, whichever way up the cube was scanned. It
+   * also catches the recolouring bug it replaced — the beginner solver works
+   * in solver space, where a facelet holds a face number rather than a palette
+   * colour, and handing those states to the renderer repaints the entire cube
+   * while still looking like a plausible scramble. What gave that away was not
+   * the picture: it was a piece described as "the blue and green edge" on a
+   * cube whose bottom was yellow.
+   */
+  await expect(page.locator('#academy-note'),
+    'the daisy fetches white edges, whatever way up the cube was scanned')
+    .toContainText(/white/i);
 
   // and the lesson can be reopened without losing your place
   var before = await page.locator('#move-counter').textContent();
@@ -523,6 +518,17 @@ test('the solve screen shows one move at a time, with nothing to press but Next'
     await expect(page.locator('#btn-restart')).toBeVisible();
 
     /*
+     * The colours the cube is drawn in are checked in the Academy test rather
+     * than here, and by name rather than by pixel. A pixel is the obvious way
+     * and a bad one: the layer about to turn is drawn at full strength and
+     * everything else at 42%, so what a sample returns depends on which move
+     * happens to be next. Academy names the piece it is fetching, and with the
+     * solver-space states that once got handed to the renderer that name comes
+     * out as "the blue and green edge" on a cube whose bottom is white — which
+     * is the same bug, caught by something that cannot be dimmed.
+     */
+
+    /*
      * Every half turn is split into two quarter turns, so nothing in the list
      * a person is asked to follow ends in a 2. This is the assertion for it:
      * the move counter runs over the expanded list, and stepping through the
@@ -536,6 +542,46 @@ test('the solve screen shows one move at a time, with nothing to press but Next'
     }
     expect(seen.filter(Boolean).length, 'four moves in a row should each say something').toBe(4);
   });
+
+/*
+ * The same face photographed twice, caught at the time.
+ *
+ * A 3x3 is named by its centre sticker and a repeat was always refused here. A
+ * 2x2 and a 4x4 have no such sticker and had no check at all: the duplicate
+ * went in silently and six photos later the assembler said they did not add up
+ * to a real cube, which is true, useless, and blames the wrong step. This is
+ * the logic on its own — no camera needed, which is why it can run here.
+ */
+test('a face already photographed is recognised without a centre sticker', async function ({ page }, testInfo) {
+  test.skip(testInfo.project.name !== 'iphone-se', 'logic, not layout — one profile is enough');
+
+  var verdicts = await page.evaluate(function () {
+    // four stickers, as the detector hands them over: [r,g,b] each
+    var RED = [220, 30, 20], GREEN = [30, 170, 80], BLUE = [20, 90, 190], WHITE = [235, 235, 232];
+    var face = [RED, GREEN, BLUE, WHITE];
+    // the same face a quarter turn round, and a shade darker for good measure.
+    // Row-major [a,b,c,d] turned 90 degrees is [c,a,d,b].
+    var again = [BLUE, RED, WHITE, GREEN].map(function (c) {
+      return c.map(function (v) { return Math.round(v * 0.93); });
+    });
+    var other = [GREEN, GREEN, RED, BLUE];
+
+    var stub = Object.create(window.CubeScanner.prototype);
+    stub.size = 2;
+    stub.samples = [face];
+    stub.centers = [];
+    return {
+      itself: stub.sameFaceAlreadyTaken(face, null),
+      turnedAndDimmer: stub.sameFaceAlreadyTaken(again, null),
+      different: stub.sameFaceAlreadyTaken(other, null)
+    };
+  });
+
+  expect(verdicts.itself, 'the same face should be spotted as photo 1').toBe(0);
+  expect(verdicts.turnedAndDimmer,
+    'the same face turned a quarter round is still the same face').toBe(0);
+  expect(verdicts.different, 'a different face has to get through').toBe(-1);
+});
 
 /*
  * The end of a solve, and the way out of a bad one.

@@ -163,6 +163,88 @@ var messy4 = sweep('busy room   ', function () {
 });
 check('a 4x4 survives a random background', messy4 >= 0.98, (messy4 * 100).toFixed(0) + '%');
 
+/*
+ * A 2x2, which had no coverage here at all — and that is exactly why it was
+ * the size that behaved worst. Four stickers is the least a face can be, so it
+ * is the size with the least to spare, and it was the one being held to the
+ * strictest standard: the minimum-match rule gave a 3x3 six of nine and a 2x2
+ * four of four, which is no tolerance whatsoever. One sticker lost to a
+ * highlight, a thumb, or a merge with the cell beside it, and the whole face
+ * was refused.
+ */
+console.log('\nlocating a 2x2 grid');
+
+check('a square-on 2x2 is always found', sweep('square on   ', function () {
+  return { N: 2, angle: 0, scale: rand(60, 120), cx: 240, cy: 180, shade: 0.15, noise: 8 };
+}) === 1);
+
+check('a tilted 2x2 is always found', sweep('tilted      ', function () {
+  return { N: 2, angle: rand(-0.3, 0.3), scale: rand(55, 110), cx: 240, cy: 180, shade: 0.2, noise: 10 };
+}) === 1);
+
+check('an off-centre 2x2 at any size is always found', sweep('off-centre  ', function () {
+  return { N: 2, angle: rand(-0.25, 0.25), scale: rand(45, 90), cx: rand(150, 330), cy: rand(110, 250), shade: 0.25, noise: 12 };
+}) === 1);
+
+var messy2 = sweep('busy room   ', function () {
+  return {
+    N: 2, angle: rand(-0.3, 0.3), scale: rand(45, 95), cx: rand(160, 320), cy: rand(110, 250),
+    shade: 0.35, noise: 18, background: [rand(30, 220), rand(30, 220), rand(30, 220)]
+  };
+});
+check('a 2x2 survives a random background', messy2 >= 0.98, (messy2 * 100).toFixed(0) + '%');
+
+/*
+ * One sticker gone, at every size.
+ *
+ * The commonest real loss there is: a highlight blows a cell out to white, a
+ * thumb covers one, or it merges into a same-coloured neighbour. A 3x3 has
+ * always shrugged this off. A 2x2 could not, because four of four leaves
+ * nothing to lose — measured 0% found before the rule was changed, against a
+ * 3x3's 100% on the same case.
+ */
+console.log('\none sticker missing');
+
+function withCellHidden(N, opts) {
+  var cells = randomCells(N);
+  var img = renderFace(cells, opts);
+  // paint one whole cell, seams and all, the colour of the surroundings
+  var hide = (Math.random() * N * N) | 0;
+  var row = (hide / N) | 0, col = hide % N;
+  var ca = Math.cos(opts.angle), sa = Math.sin(opts.angle);
+  var du = col + 0.5 - N / 2, dv = row + 0.5 - N / 2;
+  var px = opts.cx + (du * ca - dv * sa) * opts.scale;
+  var py = opts.cy + (du * sa + dv * ca) * opts.scale;
+  var r = opts.scale * 0.62;
+  for (var y = Math.max(0, (py - r) | 0); y < Math.min(360, py + r); y++) {
+    for (var x = Math.max(0, (px - r) | 0); x < Math.min(480, px + r); x++) {
+      if (Math.hypot(x - px, y - py) > r) continue;
+      var o = (y * 480 + x) * 4;
+      // dark, not blown out: a white patch is still a blob and would be
+      // read as a white sticker. A thumb, a deep shadow or a merge with the
+      // neighbour is a cell that is not there at all, which is the real loss.
+      for (var c = 0; c < 3; c++) img.data[o + c] = 18;
+    }
+  }
+  return img;
+}
+
+[2, 3, 4].forEach(function (N) {
+  var found = 0;
+  for (var t = 0; t < trials; t++) {
+    var opts = {
+      N: N, angle: rand(-0.25, 0.25), scale: rand(34, 62) * 3 / N,
+      cx: 240, cy: 180, shade: 0.2, noise: 8
+    };
+    var out = D.detectFace(withCellHidden(N, opts), { size: N });
+    if (out && !out.failed) found++;
+  }
+  var rate = found / trials;
+  console.log('  ' + N + 'x' + N + ' with a cell lost: ' + found + '/' + trials +
+    '  (' + (rate * 100).toFixed(0) + '%)');
+  check(N + 'x' + N + ' survives losing one sticker', rate >= 0.9, (rate * 100).toFixed(0) + '%');
+});
+
 console.log('\nworking out the size without being told');
 // Bigger-first is the whole basis of auto-detection, and it rests on this
 // asymmetry: a 3x3 grid fits inside a 4x4, but a 4x4 cannot hide in a 3x3.

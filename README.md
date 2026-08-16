@@ -41,16 +41,25 @@ time, with the same cube beside it saying which face you are on.
 **🎓 Teach me** solves the cube the way a person does, on the scramble you
 actually have, and tells you what it is doing:
 
-- **Seven stages, always seven** — bottom cross, bottom corners, middle layer,
-  top cross, top face, place the corners, last edges. A stage your cube arrives
-  with already done is shown as done rather than quietly dropped, because the
-  method has seven stages whether or not this particular cube needs them all.
+- **White on the bottom, always.** The method is taught that way everywhere, so
+  the first card asks you to turn the whole cube until white is underneath and
+  yellow on top, and shows you the cube as it will be. Every stage after that
+  talks about the white cross and the yellow face and means it.
+- **It starts with the daisy**, the way the beginner method actually does:
+  white edges gathered round the yellow centre on top, then turned down into
+  the cross one at a time. Building the cross straight onto the bottom is the
+  step everyone finds impossible — two colours to match at once, on the face
+  you cannot see — and the daisy is how the method avoids it.
+- **Eight stages, always eight** — daisy, white cross, white corners, middle
+  layer, yellow cross, yellow face, place the corners, last edges. A stage your
+  cube arrives with already done is shown as done rather than quietly dropped,
+  because the method has eight stages whether or not this cube needs them all.
 - **A lesson before each stage**: how many pieces and how many moves, what you
   are trying to end up with, and — the part every tutorial skips fastest —
   *what to look for on your own cube* to spot the case you are in. Recognition
   is the thing that does not come from following arrows. Tap the stage line
   any time to read it again without losing your place.
-- **One piece at a time** through the first three stages. They place four
+- **One piece at a time** through the first four stages. They place four
   pieces each, and the app says which: *Piece 2 of 4 — the white and red edge*.
   Twenty-five moves in a row is a wall; four pieces is a list you can get to
   the end of.
@@ -65,7 +74,7 @@ actually have, and tells you what it is doing:
 - You can jump between stages, switch to the short solution on the same cube
   without rescanning, and switch back.
 
-It is about 110 moves against the fast solver's 20, and that is the trade: the
+It is about 125 moves against the fast solver's 20, and that is the trade: the
 short answer is unlearnable — its moves are not reasons — and the method is not
 short. `test/academy.test.js` checks the notation being shown is always the
 move actually being made, which is the one way this could teach the wrong
@@ -73,6 +82,10 @@ thing convincingly.
 
 Academy is a 3×3 method. A 2×2 or a 4×4 gets the direct solution and is told
 why.
+
+The stage names, the algorithm names and the daisy itself are the ones every
+other tutorial uses, on purpose: what you learn here should still make sense in
+somebody else's video.
 
 Keep the cube in the same orientation the whole way through. After a scan there
 is nothing to line up at all: the cube on screen has been turned to match your
@@ -135,6 +148,14 @@ A green outline shows when it has found the face. Reading happens on the device
 in about 50 milliseconds for the whole cube — nothing is uploaded.
 
 Three things make the loose framing possible:
+
+**How much of the grid has to be there.** A 3×3 may lose three of its nine
+stickers to glare, a thumb or a merge with a same-coloured neighbour and still
+lock on. A 2×2 was being held to four of four — no tolerance at all, on the
+size that can least afford it, which is why it behaved worst of the three. It
+is three of four now, which is exactly what the affine fit needs to determine
+the grid rather than guess it. Measured on one lost sticker: 0% found before,
+100% after, with the 3×3 and 4×4 unchanged.
 
 **Finding the face.** `js/detect.js` segments the frame into blobs, then uses
 the grid arrangement itself as the signature: nine similarly-sized square-ish

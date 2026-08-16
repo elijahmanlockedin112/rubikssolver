@@ -254,8 +254,23 @@
    * demanding 13 of 16 means a 3x3 cannot be dressed up as a 4x4 by roping in
    * a few lucky background blobs. Relaxing this is what made a 3x3 occasionally
    * read as a 4x4.
+   *
+   * A 2x2 was getting the same treatment as a 4x4 — four fifths of four is
+   * four — and four of four means no tolerance at all, on the size that can
+   * least afford it. Two stickers of one colour side by side segment as a
+   * single blob, which on a face of four happens constantly, and the whole
+   * face was then refused: measured 46% found against a 3x3's 100% on exactly
+   * that case. Three of four fixes it, and three points is precisely what the
+   * affine fit needs, so the lattice is still determined rather than guessed.
+   *
+   * The reason the strict rule exists does not apply here. It guards against a
+   * smaller cube being read as a bigger one by roping in background blobs, and
+   * nothing is smaller than a 2x2 — detectAny is not even offered the size, so
+   * a 2x2 is only ever looked for when the person scanning has said that is
+   * what they are holding.
    */
   function minimumMatch(N) {
+    if (N === 2) return 3;
     return N === 3 ? 6 : Math.ceil(N * N * 0.8);
   }
 

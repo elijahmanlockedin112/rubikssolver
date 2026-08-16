@@ -38,7 +38,7 @@ function randomScramble(n) {
 
 console.log('\nevery stage and algorithm has teaching attached');
 
-check('the seven stage ids match solver.js exactly',
+check('the stage ids match solver.js exactly, in order',
   Solver.STAGES.map(function (s) { return s.id; }).join(',') ===
   Academy.STAGES.map(function (s) { return s.id; }).join(','),
   'solver: ' + Solver.STAGES.map(function (s) { return s.id; }).join(',') +
@@ -82,7 +82,8 @@ console.log('\nwhat the notation strip says is what the cube does');
 
 var seenStages = {}, seenAlgs = {}, mismatches = 0, blanks = 0, checked = 0;
 var untagged = {}, badPiece = 0;
-var PIECE_STAGES = { cross: 1, corners: 1, middle: 1 };
+// the stages that place pieces one at a time, and therefore name them
+var PIECE_STAGES = { daisy: 1, cross: 1, corners: 1, middle: 1 };
 for (var t = 0; t < trials; t++) {
   var state = Cube.applySeq(Cube.SOLVED, randomScramble(25));
   var result;
@@ -98,7 +99,7 @@ for (var t = 0; t < trials; t++) {
     seenStages[step.stage] = true;
 
     /*
-     * Every move of the first three stages belongs to a piece. A step that
+     * Every move of the piece stages belongs to a piece. A step that
      * lost its tag shows up as a stage with no structure at all, which looks
      * exactly like the old behaviour and is the thing being prevented.
      */
@@ -131,8 +132,9 @@ for (var t = 0; t < trials; t++) {
 check('every stage that came up has teaching for it',
   Object.keys(seenStages).every(function (k) { return seenStages[k] === true; }),
   JSON.stringify(seenStages));
-check('all seven stages came up over ' + trials + ' scrambles',
-  Object.keys(seenStages).length === 7, Object.keys(seenStages).join(','));
+check('every stage of the method came up over ' + trials + ' scrambles',
+  Object.keys(seenStages).length === Academy.STAGES.length,
+  Object.keys(seenStages).join(','));
 check('every algorithm the solver used is one Academy can name',
   Object.keys(seenAlgs).every(function (k) { return !!Academy.alg(k); }),
   Object.keys(seenAlgs).join(','));
@@ -140,7 +142,7 @@ check('the highlighted move is the move being made, every time',
   mismatches === 0, mismatches + ' of ' + checked + ' pointed at the wrong turn');
 check('no algorithm move was left without a place in its algorithm',
   blanks === 0, blanks + ' had no position');
-check('every move of the first three stages says which piece it is for',
+check('every move of a piece stage says which piece it is for',
   Object.keys(untagged).length === 0, JSON.stringify(untagged));
 check('every piece the solver names can be named back',
   badPiece === 0, badPiece + ' pieces had no readable name');

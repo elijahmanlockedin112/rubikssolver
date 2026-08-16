@@ -5,10 +5,15 @@
  * the same seven stages a person learns, so every move in the list is a move
  * the user could have found themselves.
  *
- *   1. bottom cross          5. top face all one color
- *   2. bottom corners        6. place the top corners
- *   3. middle-layer edges    7. finish the last edges
- *   4. top cross
+ *   1. the daisy             5. yellow cross
+ *   2. the white cross      6. yellow face
+ *   3. white corners        7. place the last corners
+ *   4. middle layer         8. finish the last edges
+ *
+ * White on the bottom throughout, which is what every tutorial teaches and
+ * what the stage names here assume. Turning the cube so that is true is the
+ * caller's job — see orientWhiteDown in app.js — and this file simply solves
+ * the cube it is handed, bottom face first.
  *
  * Two search helpers do the heavy lifting:
  *   search()      — plain iterative-deepening over quarter/half turns, used
@@ -30,7 +35,8 @@
   var LEFT_OF = {}; LEFT_OF[F] = L; LEFT_OF[L] = B; LEFT_OF[B] = R; LEFT_OF[R] = F;
 
   var STAGES = [
-    { id: 'cross', title: 'Bottom cross', blurb: 'Build a plus sign on the bottom face with the side colors matching the centers.' },
+    { id: 'daisy', title: 'The daisy', blurb: 'Gather the four white edges round the yellow centre on top.' },
+    { id: 'cross', title: 'The white cross', blurb: 'Turn each petal down into place, matching the side colours.' },
     { id: 'corners', title: 'Bottom corners', blurb: 'Drop the four bottom corners in. The whole first layer is finished after this.' },
     { id: 'middle', title: 'Middle layer', blurb: 'Send the four middle edges into their slots. Two layers down.' },
     { id: 'topcross', title: 'Top cross', blurb: 'Flip the top edges so the top face shows a plus sign.' },
@@ -180,7 +186,7 @@
   function solve(startState) {
     var s = Uint8Array.from(startState);
     var steps = [];      // { move, stage, alg, target }
-    var stage = 'cross';
+    var stage = 'daisy';
     /*
      * Which piece the next moves are for, as the letters of the faces its home
      * slot touches — 'DF' is the bottom-front edge, 'DFR' the corner between
@@ -205,49 +211,91 @@
       }
     }
 
-    // --- 1. bottom cross --------------------------------------------------
-    var CROSS_ORDER = [F, R, B, L];
-    for (var ci = 0; ci < CROSS_ORDER.length; ci++) {
-      solveCrossEdge(CROSS_ORDER[ci], CROSS_ORDER.slice(0, ci));
-    }
+    // --- 1. the daisy -----------------------------------------------------
+    /*
+     * The daisy: the four white edges gathered round the yellow centre on top,
+     * white facing up.
+     *
+     * This is how the beginner method actually starts, and building the cross
+     * straight onto the bottom instead — which is what this used to do — is
+     * the step everyone finds impossible. Matching two colours at once, on the
+     * face you cannot see, in a slot you have to keep protecting. The daisy
+     * splits it: get the white edges up here, where they are all visible and
+     * nothing is placed yet and nothing can be knocked out. Then drop them.
+     *
+     * The moves are found rather than written down, but they are bounded at
+     * four turns and no piece is protected yet, so what comes out is what a
+     * person would do: one turn to bring an edge up, sometimes a second to
+     * flip it. Which edge is being fetched is what the learner is told.
+     */
+    var SIDES = [F, R, B, L];
 
-    function crossIntact(st, done) {
-      for (var i = 0; i < done.length; i++) {
-        if (!edgePlaced(st, Cube.edgeIndex(D, done[i]))) return false;
+    function isPetal(st, x) {
+      var loc = findEdge(st, D, x);
+      for (var k = 0; k < U_EDGE_SLOTS.length; k++) {
+        if (U_EDGE_SLOTS[k].pos === loc.pos) return st[Cube.EDGE_FACELETS[loc.pos][0]] === D;
       }
-      return true;
+      return false;
     }
 
-    function solveCrossEdge(face, done) {
+    for (var petal = 0; petal < 4; petal++) {
+      var todo = SIDES.filter(function (x) { return !isPetal(s, x); });
+      if (!todo.length) break;
+      var kept = SIDES.filter(function (x) { return isPetal(s, x); });
+      var pick = null;
+      for (var di = 0; di <= 4 && !pick; di++) {
+        for (var ti = 0; ti < todo.length && !pick; ti++) {
+          var want = todo[ti];
+          var path = search(s, goalFor(want, kept), di);
+          if (path) pick = { face: want, path: path };
+        }
+      }
+      if (!pick) throw new Error('Could not build the daisy.');
+      target = 'D' + LET[pick.face];
+      run(pick.path);
+    }
+
+    function goalFor(want, kept) {
+      return function (st) {
+        if (!isPetal(st, want)) return false;
+        for (var i = 0; i < kept.length; i++) if (!isPetal(st, kept[i])) return false;
+        return true;
+      };
+    }
+
+    // --- 2. the white cross ----------------------------------------------
+    /*
+     * Every petal turned down into place, one face at a time.
+     *
+     * Nothing is searched for here, because there is nothing to search: line
+     * the petal up over the centre whose colour it matches, turn that face
+     * twice, and it is home the right way round. That is the whole trick, and
+     * it is the first moment in the method where a person can see why a move
+     * works rather than being told it does.
+     *
+     * Each face is used exactly once and U turns never touch the bottom, so
+     * nothing already dropped can be knocked out — which is why the order the
+     * faces are taken in does not matter.
+     */
+    stage = 'cross';
+    for (var cf = 0; cf < SIDES.length; cf++) dropPetal(SIDES[cf]);
+
+    function dropPetal(face) {
       var home = Cube.edgeIndex(D, face);
       if (edgePlaced(s, home)) return;
       target = 'D' + LET[face];
-
-      // Shortest route straight into the slot, if there is a short one.
-      var direct = search(s, function (st) {
-        return edgePlaced(st, home) && crossIntact(st, done);
-      }, 5);
-      if (direct) { run(direct); return; }
-
-      // Otherwise: park the piece on top with the bottom color facing up,
-      // then spin it over its slot and drop it in.
-      var path = search(s, function (st) {
-        if (!crossIntact(st, done)) return false;
-        var found = findEdge(st, D, face);
-        for (var k = 0; k < U_EDGE_SLOTS.length; k++) {
-          if (U_EDGE_SLOTS[k].pos === found.pos) return st[Cube.EDGE_FACELETS[found.pos][0]] === D;
-        }
-        return false;
-      }, 6);
-      if (!path) throw new Error('Could not build the bottom cross (edge ' + LET[face] + ').');
-      run(path);
-
+      var slot = Cube.edgeIndex(U, face);
+      var turns = ['', 'U', 'U2', "U'"];
       for (var k = 0; k < 4; k++) {
-        if (findEdge(s, D, face).pos === Cube.edgeIndex(U, face)) break;
-        run(['U']);
+        var probe = turns[k] ? Cube.apply(s, turns[k]) : s;
+        if (findEdge(probe, D, face).pos === slot) {
+          if (turns[k]) run([turns[k]]);
+          run([LET[face] + '2']);
+          if (!edgePlaced(s, home)) throw new Error('Cross edge ' + LET[face] + ' did not seat.');
+          return;
+        }
       }
-      run([LET[face] + '2']);
-      if (!edgePlaced(s, home)) throw new Error('Bottom cross edge ' + LET[face] + ' did not seat.');
+      throw new Error('Cross edge ' + LET[face] + ' was not a petal.');
     }
 
     // --- 2. bottom corners ------------------------------------------------
@@ -263,8 +311,8 @@
     }
 
     function firstLayerIntact(st, donePairs) {
-      for (var i = 0; i < CROSS_ORDER.length; i++) {
-        if (!edgePlaced(st, Cube.edgeIndex(D, CROSS_ORDER[i]))) return false;
+      for (var i = 0; i < SIDES.length; i++) {
+        if (!edgePlaced(st, Cube.edgeIndex(D, SIDES[i]))) return false;
       }
       for (var j = 0; j < donePairs.length; j++) {
         if (!cornerPlaced(st, Cube.cornerIndex(D, donePairs[j][0], donePairs[j][1]))) return false;

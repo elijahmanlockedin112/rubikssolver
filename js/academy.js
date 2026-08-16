@@ -3,7 +3,7 @@
  *
  * solver.js produces the moves and tags which algorithm each one came from.
  * This is the other half: what each stage is *for*, what to look for on your
- * own cube to spot it, and the names the six algorithms go by everywhere else,
+ * own cube to spot it, and the names the eight algorithms go by everywhere else,
  * so what is learned here is transferable rather than local to this app.
  *
  * The wording is aimed at someone who has never solved a cube. Two rules it
@@ -23,79 +23,111 @@
 
   var STAGES = [
     {
+      id: 'daisy',
+      title: 'The daisy',
+      goal: 'The yellow centre on top with the four white edges around it, white facing up. It ' +
+        'looks like a flower, and it is the one step here that does not have to match anything.',
+      look: 'Find a white edge — an edge is a piece with two stickers. Wherever it is, one turn of ' +
+        'the face it sits on brings it up to the top. If a petal you already have is in the way, ' +
+        'turn the top layer out of the way first: nothing is placed yet, so the top spins freely.',
+      why: 'Everyone is told to build the white cross straight onto the bottom, and everyone finds ' +
+        'it impossible — you are matching two colours at once, on the face you cannot see, in a ' +
+        'slot you then have to protect. The daisy splits that in half. Get the white edges up here ' +
+        'where you can see them, while nothing is finished and nothing can be knocked out.'
+    },
+    {
       id: 'cross',
-      title: 'The bottom cross',
-      goal: 'A plus sign on the bottom face, with each arm matching the centre next to it.',
-      look: 'Find the four edge pieces that carry the bottom colour — an edge is a piece with two ' +
-        'stickers. Each one has a second colour, and that colour has to end up on the face whose ' +
-        'centre matches it. Matching both is the whole job.',
-      why: 'This is the only stage with no algorithm, and that is deliberate: four pieces, each ' +
-        'placed by looking at where it is and turning it down. Slow at first, and the stage that ' +
-        'stops feeling like work soonest.'
+      title: 'The white cross',
+      goal: 'A white plus on the bottom, and — the part that actually matters — each arm matching ' +
+        'the centre above it. Look at the sides: four little upside-down T shapes.',
+      look: 'One petal at a time. Turn the top until that petal’s other colour sits above the ' +
+        'centre of the same colour, then turn that whole face twice and it swings down into place.',
+      why: 'Two turns, not one, and that is the whole trick: a half turn carries the edge from the ' +
+        'top of a face to the bottom of it without flipping it over, so it arrives the right way ' +
+        'round. The turn of the top layer is you doing the matching; the half turn is the cube ' +
+        'doing the rest. Once a petal is down nothing later disturbs it — turning the top never ' +
+        'reaches the bottom, and each side face gets used exactly once.'
     },
     {
       id: 'corners',
-      title: 'The bottom corners',
-      goal: 'The whole bottom layer finished — the cross plus four corners, and a matching band ' +
-        'of colour all the way round the bottom of the sides.',
-      look: 'A corner has three stickers. Find one carrying the bottom colour, park it directly ' +
-        'above the gap it belongs in, and bring it down. If it is already in the right place but ' +
-        'twisted the wrong way, take it out first and put it back.',
-      why: 'Everything after this is done without ever disturbing what is underneath. That is the ' +
-        'idea the whole method rests on: each stage protects the last.'
+      title: 'The white corners',
+      goal: 'The whole bottom layer: the cross plus four white corners, with a matching band of ' +
+        'colour running round the bottom of all four sides.',
+      look: 'A corner has three stickers. Find one with white on it and read its other two ' +
+        'colours — they name the two centres it belongs between. Turn the top until the corner is ' +
+        'directly above that gap, then work it down.',
+      why: 'The corner goes out of its slot and back in with the same pair of turns repeated: take ' +
+        'it out, spin the top, put it back. Watch the white sticker as you go — each repeat turns ' +
+        'it a third of the way round, so it comes to face downwards eventually, and the moment it ' +
+        'does the corner drops home. A corner already in the right place but twisted has to come ' +
+        'out first and go back the same way.'
     },
     {
       id: 'middle',
       title: 'The middle layer',
-      goal: 'Two full layers. The bottom is untouched and the middle band of every side matches ' +
-        'its centre.',
-      look: 'Four edges to place, and none of them carry the top colour — that is how you spot ' +
-        'them. Line one up with the centre it matches on a side face, then send it left or right ' +
-        'into the gap.',
-      why: 'The insert is your first proper algorithm: a sequence that takes a piece out of the ' +
-        'top, puts it in the middle, and repairs the corner it borrowed on the way past.'
+      goal: 'Two full layers. The bottom untouched, and the middle band of every side matching its ' +
+        'centre. Only the yellow layer left after this.',
+      look: 'You want the edges with no yellow on them — that is how you pick them out from up ' +
+        'here. Turn the top until one makes an upside-down T with the centre below it. Then look ' +
+        'at its top colour: if that colour’s centre is to the RIGHT, use the right insert; if ' +
+        'it is to the LEFT, use the left one.',
+      why: 'The first algorithm worth learning by heart. It takes a corner of the finished bottom ' +
+        'layer out of the way, drops the edge into the gap behind it, and puts the corner straight ' +
+        'back — which is why the bottom looks broken half way through and is fine at the end. If ' +
+        'the edge you need is stuck in a middle slot already, run the insert on that slot anyway ' +
+        'to kick it up to the top, then place it properly.'
     },
     {
       id: 'topcross',
-      title: 'The top cross',
-      goal: 'A plus sign on the top face. Only the top colour matters here — the sides of those ' +
-        'edges can be anything.',
-      look: 'Look at the top face and count the top-coloured edges: a dot, an L shape, a straight ' +
-        'line, or the cross. The algorithm takes you a step along that chain each time you run it, ' +
-        'so it may take two or three goes.',
-      why: 'Orientation before position. Getting pieces facing the right way and getting them in ' +
-        'the right place are two separate problems, and doing them at once is what makes the last ' +
-        'layer feel impossible.'
+      title: 'The yellow cross',
+      goal: 'A yellow plus on the top face. Only the yellow facing up counts here — the sides of ' +
+        'those edges can be any colour at all.',
+      look: 'Look down at the top and you will see one of four things: a dot, an L, a line, or the ' +
+        'cross. Hold an L so its two yellow edges point left and away from you; hold a line so it ' +
+        'runs left to right; from a dot, hold it however you like.',
+      why: 'One algorithm walks you along that chain — dot to L, L to line, line to cross — so it ' +
+        'is the same six moves run once, twice or three times depending on where you started. It ' +
+        'only flips edges and does not care where they are, which is deliberate: getting pieces ' +
+        'facing the right way and getting them into the right places are two separate problems, ' +
+        'and trying to do both at once is what makes a last layer feel impossible.'
     },
     {
       id: 'topface',
-      title: 'The whole top face',
-      goal: 'The top face a single solid colour. The sides will look scrambled, and that is fine.',
-      look: 'Count the corners already showing the top colour: none, one, two, or all four. Hold ' +
-        'the cube as the algorithm asks, run it, and count again. It is the same one or two ' +
-        'sequences repeated.',
-      why: 'This one looks like it is destroying the cube half way through and then puts it back. ' +
-        'That is normal, and trusting it is most of the skill.'
+      title: 'The whole yellow face',
+      goal: 'The top face a solid yellow. The sides will look thoroughly scrambled, and that is ' +
+        'exactly what it should look like.',
+      look: 'Count the corners already showing yellow on top: none, one, two or four. With one, ' +
+        'hold the cube so that corner is at the front left. With two, find a yellow sticker facing ' +
+        'left on the front-left corner and hold it there.',
+      why: 'Sune: seven moves, and the most-used algorithm in the method. It twists three corners ' +
+        'at once and leaves the fourth alone. It looks like it is wrecking the cube half way ' +
+        'through and then puts it all back — trusting that is most of the skill. Run it, look ' +
+        'again, run it again if you need to.'
     },
     {
       id: 'topcorners',
       title: 'Putting the corners home',
-      goal: 'The four top corners in the right places — each one between the two centres whose ' +
-        'colours it carries. They may still be twisted; that is the next stage.',
+      goal: 'The four top corners in the right places — each between the two centres whose colours ' +
+        'it carries. They may still be twisted; that is the next stage, not this one.',
       look: 'A corner is in the right place if its three colours match the three faces it touches, ' +
-        'in any order. Find one that is already right and hold the cube with it at the back, then ' +
-        'cycle the other three.',
-      why: 'Position before the last details. From here every remaining move only shuffles pieces ' +
-        'that are already facing the right way.'
+        'in any order at all. Find one that already is — there is nearly always one — and hold the ' +
+        'cube with it at the back right. If there is none, run the algorithm once from anywhere ' +
+        'and one will appear.',
+      why: 'The algorithm cycles three corners round and leaves the fourth exactly where it is, ' +
+        'which is why finding the one already home matters — that is the one you are protecting. ' +
+        'Everything left is facing the right way by now, so all that remains is moving pieces ' +
+        'about.'
     },
     {
       id: 'topedges',
       title: 'The last four edges',
       goal: 'A solved cube.',
-      look: 'Three edges to cycle round, and often a face that already matches — hold that one at ' +
-        'the back. If nothing matches, run the algorithm once anyway and something will.',
-      why: 'The last stage is one algorithm, run once or twice. Everyone gets here and thinks they ' +
-        'have broken it; run it again and the cube finishes.'
+      look: 'Three edges to cycle round. Look for a side that is already finished — a solid wall ' +
+        'of one colour — and hold the cube with that side at the back. If no side is finished, run ' +
+        'the algorithm once from anywhere and one will be.',
+      why: 'The last algorithm in the method, run once or twice. Everyone reaches this point at ' +
+        'least once convinced they have broken the cube two moves from the end. Run it again and ' +
+        'it finishes.'
     }
   ];
 

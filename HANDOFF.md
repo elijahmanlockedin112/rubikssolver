@@ -573,6 +573,63 @@ disagree, which is what the fast solver has always done. The mobile suite
 samples the front centre pixel against the stored cube, because a picture that
 is wrong in a consistent way is not one anybody notices.
 
+### Academy, rebuilt as the method people are actually taught
+
+The first version had the shape of the beginner method and none of its
+substance, and the complaint was fair: it was a solver with labels on.
+
+- **White goes on the bottom first.** `orientWhiteDown()` in app.js works out
+  the whole-cube turn that puts white underneath, applies it to a copy, solves
+  *that*, and shows the turn as the first card with the cube already turned so
+  it can be matched. Everything downstream is then canonical — the stage names
+  say white cross and yellow face and mean it, and `pieceLabel` names pieces
+  "the white and green edge" instead of whatever colour happened to be facing
+  down when the photo was taken. Without this the lesson said white while the
+  cube said orange, which is the single most confusing thing this mode could do.
+- **It starts with the daisy.** Stage 1 gathers the four white edges round the
+  yellow centre; stage 2 turns each one down into the cross. That is how every
+  tutorial teaches it and why: building the cross straight onto the bottom
+  means matching two colours at once on the face you cannot see, in a slot you
+  then have to protect. Eight stages now, not seven.
+- The daisy's moves are still found by search, but bounded at four turns with
+  nothing protected yet, so what comes out is what a person would do — one turn
+  to bring an edge up, sometimes a second to flip it. The cross stage is not
+  searched at all: line the petal up, turn that face twice. Each face is used
+  once and U never touches the bottom, which is why nothing can be knocked out.
+- Costs about ten moves against the old first stage. Worth it.
+
+### The 2x2, which was the worst of the three sizes
+
+Reported as "2x2 recognition sucks, worse than 3x3", and it was, for a reason
+that had been sitting in plain sight in `minimumMatch()`: a 3x3 needed six of
+its nine stickers found, a 4x4 thirteen of sixteen, and a **2x2 four of four**.
+No tolerance at all, on the size with the least to spare. One sticker lost to a
+highlight, a thumb, or a merge with a same-coloured neighbour — and on a face
+of four, adjacent same-coloured pairs are common — and the whole face was
+refused.
+
+Three of four now. Measured on one lost sticker: **0% found before, 100%
+after**, with the 3x3 and 4x4 unchanged, and no new false positives on a plain
+wall. Three points is exactly what the affine fit needs, so the lattice is
+still determined rather than guessed, and the rule the strict bar existed to
+protect does not apply downwards: nothing is smaller than a 2x2, and detectAny
+is never even offered the size.
+
+**And the duplicate-face check did not exist for it.** A 3x3 is named by its
+centre sticker, so a repeat was refused politely at the time. A 2x2 and a 4x4
+have no such sticker and had no check at all — the rearm is deliberately the
+forgiving of the two tests, so a second photo of the face you are still holding
+does get through now and then, and it was accepted in silence. Six photos later
+the assembler reported that they did not add up to a real cube: true, useless,
+and blaming the wrong step. Every size is compared whole-face-against-whole-face
+under all four rotations now, refused if it was auto-taken and kept with a
+warning if the button was actually pressed — because two faces of a 2x2 really
+can read alike and a refused Snap would be a dead end.
+
+**Why none of this was noticed: `detect.test.js` had no 2x2 in it at all.** The
+size with the least margin was the only one never measured. It has the full
+sweep now, plus a one-sticker-lost case at every size.
+
 ### The audit, and what it found
 
 - **The render loop never stopped.** `stop()` cancelled the current frame id —

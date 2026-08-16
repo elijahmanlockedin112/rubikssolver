@@ -504,8 +504,20 @@
      * table to build. It is the fast solver that needs the panel.
      */
     if (mode === 'academy') {
+      /*
+       * Turn it white-side-down first, then solve that.
+       *
+       * The moves come out relative to the cube as it will be held once the
+       * user has made the turn, which is why the turn is the first thing they
+       * are asked to do and why the cube on screen shows the result of it.
+       */
+      var held = orientWhiteDown(colorState);
+      var taught = held ? held.state : colorState;
       try {
-        finishSolve(Solver.solve(solverState), true);
+        var lesson = Solver.solve(Cube.toSolverSpace(taught));
+        lesson.start = taught;
+        lesson.orientation = held;
+        finishSolve(lesson, true);
       } catch (err) {
         failTo('Something went wrong working out how to teach that cube: ' + err.message);
       }
@@ -576,6 +588,57 @@
     }, 30);
   }
 
+  /*
+   * The beginner method is taught with white on the bottom. Always.
+   *
+   * Every tutorial, every video and every stage name here — white cross, white
+   * corners, yellow cross, yellow face — assumes it, and a scan does not care:
+   * it reads the cube however it was held for the last photo, so white lands
+   * wherever it lands. Solving from there produces a "bottom cross" in
+   * whatever colour happened to be underneath, and then the lesson says white
+   * while the cube says orange, which is the single most confusing thing this
+   * mode could do.
+   *
+   * So Academy turns the cube first. The whole cube, not a layer — the centres
+   * move with it and nothing is solved or unsolved by it — and the user is
+   * shown the turn and asked to make it before anything else happens. What
+   * comes back is the cube as it will be once they have.
+   */
+  var WHITE = 0;   // index into PALETTE / COLOR_NAMES
+
+  var TURN_TO_WHITE_DOWN = {
+    // face white is on now -> how to get it underneath, in words and in turns
+    0: { axis: 'x', times: 2, text: 'Turn the whole cube upside down, so the white centre ends up on the bottom and the yellow centre is on top.' },
+    2: { axis: 'x', times: 1, text: 'Tip the whole cube forwards — the face that is toward you goes underneath — so white ends up on the bottom and yellow on top.' },
+    5: { axis: 'x', times: 3, text: 'Tip the whole cube backwards — the face away from you comes up over the top — so white ends up on the bottom and yellow on top.' },
+    4: { axis: 'z', times: 1, text: 'Roll the whole cube to your left, so the left-hand face goes underneath: white ends up on the bottom and yellow on top.' },
+    1: { axis: 'z', times: 3, text: 'Roll the whole cube to your right, so the right-hand face goes underneath: white ends up on the bottom and yellow on top.' }
+  };
+
+  /**
+   * The cube turned so white is down, and the words for turning yours to match.
+   * Returns null if it is already there — which still gets said, because
+   * "and it stays that way" is part of the lesson.
+   */
+  function orientWhiteDown(state) {
+    var on = -1;
+    for (var f = 0; f < 6; f++) if (state[Cube.CENTERS[f]] === WHITE) { on = f; break; }
+    if (on < 0) return null;                      // no white centre: an odd cube, leave it alone
+    if (on === 3) {
+      return { state: Int8Array.from(state), moved: false,
+        text: 'Your cube already has white on the bottom and yellow on top. Keep it that way: ' +
+          'every move from here is described as if you are holding it exactly like this.' };
+    }
+    var turn = TURN_TO_WHITE_DOWN[on];
+    if (!turn) return null;
+    var axis = turn.axis === 'x' ? CubeN.AXIS.x : CubeN.AXIS.z;
+    var out = Int8Array.from(state);
+    for (var t = 0; t < turn.times; t++) {
+      out = permuteInto(out, CubeN.wholeRotation(3, axis, 1));
+    }
+    return { state: out, moved: true, text: turn.text };
+  }
+
   function sameColours(a, b) {
     if (!a || !b || a.length !== b.length) return false;
     for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
@@ -623,11 +686,12 @@
      * worked out from the moves if they disagree — which is what the fast
      * solver, which brings no states at all, has always done.
      */
-    if (given && !sameColours(given[0], colorState)) given = null;
+    if (given && !sameColours(given[0], solution.start || colorState)) given = null;
     // the beginner solver hands back annotated steps; the fast one, bare moves
     var src = solution.steps || solution.moves.map(function (m) { return { move: m }; });
     var out = { moves: [], steps: [], states: [], groups: [] };
-    out.states.push(Int8Array.from(given ? given[0] : colorState));
+    var from = solution.start || colorState;
+    out.states.push(Int8Array.from(given ? given[0] : from));
 
     var reindex = [];   // original step number -> where it starts once expanded
     src.forEach(function (step, i) {
@@ -679,6 +743,7 @@
   function finishSolve(solution, teaching) {
     plan = expandHalfTurns(solution);
     plan.teaching = !!teaching;
+    plan.orientation = solution.orientation || null;
     setMessage('');
     $('repair-note').textContent = note || '';
     $('repair-note').hidden = !note;
@@ -866,8 +931,36 @@
    * between being taught and being led — the moves alone teach nothing, which
    * is exactly the complaint about every "solve it in 20 moves" answer.
    */
+  /*
+   * The very first card: how to hold the cube.
+   *
+   * Before any stage, before any move. The whole method is written for white
+   * on the bottom, the cube on screen is already showing the result of that
+   * turn, and the user has to make it in their hands or nothing after this
+   * lines up. It gets its own beat for the same reason it gets its own
+   * paragraph in every tutorial.
+   */
+  function atOrientation() {
+    return teaching() && !!plan.orientation && index === 0 && !introDone.__hold && !lessonOpen;
+  }
+
+  function showOrientation() {
+    $('stage-line').hidden = false;
+    $('stage-line').textContent = 'Before you start';
+    $('move-title').textContent = plan.orientation.moved ? 'Turn the whole cube' : 'How to hold it';
+    $('move-detail').textContent = plan.orientation.text;
+    $('academy-note').hidden = false;
+    $('academy-note').textContent = 'The cube above is how yours should look once you have. ' +
+      'Turning the whole cube solves nothing and breaks nothing — the centres go with it, and they ' +
+      'are what every instruction from here is measured against.';
+    $('alg-strip').hidden = true;
+    $('btn-next').textContent = 'Done — what is first? ›';
+    solveFront.showArrowFor = null;
+  }
+
   function atStageIntro() {
     if (!teaching() || index >= plan.steps.length) return false;
+    if (atOrientation()) return true;
     if (lessonOpen) return true;
     var here = currentStage();
     return !!here && !!here.group && index === here.group.start && !introDone[here.id];
@@ -973,6 +1066,8 @@
           ' moves. Do it again on a fresh scramble and you will need the cards less each time.'
         : 'Every face should now be a single colour. ' + total + ' moves. Nice work.';
       celebrate();
+    } else if (atOrientation()) {
+      showOrientation();
     } else if (intro) {
       showStageIntro(here);
     } else {
@@ -1038,6 +1133,7 @@
   function stepForward() {
     if (busy || !plan || index >= plan.steps.length) return;
     // the lesson card is a step of its own: read it, then start the stage
+    if (atOrientation()) { introDone.__hold = true; applyIndex(); return; }
     if (atStageIntro()) {
       introDone[currentStage().id] = true;
       lessonOpen = false;
