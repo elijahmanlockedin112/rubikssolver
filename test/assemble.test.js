@@ -244,11 +244,12 @@ console.log('\nturning the cube to match the last photo');
       var rot = turns[Math.floor(Math.random() * turns.length)];
       var asShot = new Int8Array(6 * per);
       for (var i = 0; i < 6 * per; i++) asShot[i] = state[rot[i]];
-      var photo = Array.prototype.slice.call(asShot.subarray(2 * per, 3 * per));
+      // the phone is above the cube, so what it photographs is the TOP face
+      var photo = Array.prototype.slice.call(asShot.subarray(0, per));
 
       var turned = A.orientToPhoto(state, photo, N);
-      var front = Array.prototype.slice.call(turned.subarray(2 * per, 3 * per));
-      if (front.join() === photo.join()) landed++;
+      var top = Array.prototype.slice.call(turned.subarray(0, per));
+      if (top.join() === photo.join()) landed++;
 
       // and it must still be the same cube, only turned — never a different one
       var isRotation = false;
@@ -259,7 +260,7 @@ console.log('\nturning the cube to match the last photo');
       }
       if (isRotation) stillSameCube++;
     }
-    check(N + 'x' + N + ': the last photo ends up at the front, the way it was shot',
+    check(N + 'x' + N + ': the last photo ends up on top, the way it was shot',
       landed === tries, landed + '/' + tries);
     check(N + 'x' + N + ': turning it never changes which cube it is',
       stillSameCube === tries, stillSameCube + '/' + tries);

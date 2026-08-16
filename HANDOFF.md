@@ -630,6 +630,28 @@ can read alike and a refused Snap would be a dead end.
 size with the least margin was the only one never measured. It has the full
 sweep now, plus a one-sticker-lost case at every size.
 
+### Where the camera actually is
+
+The app tells people to stand the cube on a table and hold the phone over it,
+and then behaved as though the cube were being held up face-on. Three things
+followed from that and all three were wrong:
+
+- **The route.** Which rotation shows a new face depends entirely on where the
+  lens is: a turn about the upright axis changes the FRONT face and leaves the
+  top alone, a roll changes the TOP and leaves the front alone, and only a tip
+  changes both. The route was three left-turns — which, to a phone overhead,
+  shows the same face three times running. guide.js now has two routes:
+  `camera` (face U, three rolls toward you, then a quarter turn and two more
+  rolls) and `hand` (face F, the old left-turns) for the map screen, where
+  there is no phone in the way. `test/guide.test.js` runs both, and the
+  all-six-faces check is what would have caught the original.
+- **Where the last photo lands.** `orientToPhoto` put it at the front. It goes
+  on top now, because that is where it was when it was photographed — the cube
+  is sitting on the table exactly as the finished cube is drawn.
+- **The angle it is drawn from.** Pitch 30 made the top a shallow band above
+  the front, so the one face someone could actually identify was the hardest
+  one to see. 42 gives the top a proper face and keeps the front square-ish.
+
 ### The audit, and what it found
 
 - **The render loop never stopped.** `stop()` cancelled the current frame id —

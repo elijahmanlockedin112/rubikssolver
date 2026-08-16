@@ -43,26 +43,93 @@
   var SPIN_MS = 900;
 
   /*
-   * The route, and how the cube gets from each face to the next.
+   * Two routes, because there are two places the cube gets looked at from.
    *
-   * `axis`/`dir` are the whole-cube rotation the hands make; `dYaw`/`dPitch`
-   * are the same rotation for the camera, and the two have to agree or the
-   * picture stops being an instruction. A turn to the left brings the
-   * right-hand face round to the front, which is the camera swinging to -90.
+   * Which rotation shows you a new face depends entirely on where the lens is,
+   * and this is not a detail:
+   *
+   *   - a turn about the vertical axis changes the FRONT face and leaves the
+   *     top exactly where it was;
+   *   - a roll about the front-back axis changes the TOP and leaves the front
+   *     where it was;
+   *   - only a tip about the left-right axis changes both.
+   *
+   * So a route of left-turns works perfectly when the cube is held up to the
+   * camera and shows the same face three times running when the phone is
+   * overhead — which is how this app tells people to scan, cube on a table and
+   * the phone held over it. That was the bug: the route assumed one thing and
+   * the advice said another.
+   *
+   *   camera — the phone is above the cube. The face being read is the TOP
+   *            one, so the route is tips and rolls.
+   *   hand   — nobody is holding a phone: the map screen, where the face being
+   *            painted is the one toward you. Left-turns, as before.
+   *
+   * `face` is which slot of the cube the person is looking at, and everything
+   * else here is asked of it. `axis`/`dir` are the whole-cube rotation the
+   * hands make; `dYaw`/`dPitch` are the same rotation for the camera, and the
+   * two have to agree or the picture stops being an instruction.
    */
-  var SEQ = [
-    { turns: 0, arrow: '', text: 'Hold the cube upright, any face toward you.' },
-    { axis: CubeN.AXIS.y, dir: -1, turns: 1, dYaw: -90, dPitch: 0, arrow: '◄',
-      text: 'Turn the cube LEFT — the right-hand face comes round to the front.' },
-    { axis: CubeN.AXIS.y, dir: -1, turns: 1, dYaw: -90, dPitch: 0, arrow: '◄',
-      text: 'Turn it LEFT again — now the back face.' },
-    { axis: CubeN.AXIS.y, dir: -1, turns: 1, dYaw: -90, dPitch: 0, arrow: '◄',
-      text: 'Once more to the LEFT — the left-hand face.' },
-    { axis: CubeN.AXIS.x, dir: 1, turns: 1, dYaw: 0, dPitch: 90, arrow: '▼',
-      text: 'Now TIP the cube toward you — the top face comes round to the front.' },
-    { axis: CubeN.AXIS.x, dir: 1, turns: 2, dYaw: 0, dPitch: 90, arrow: '▼',
-      text: 'TIP it toward you twice more — the bottom face, and the last one.' }
-  ];
+  var X = CubeN.AXIS.x, Y = CubeN.AXIS.y;
+
+  // one quarter turn of the whole cube, and the same turn for the camera
+  function tip() { return { axis: X, dir: 1, dYaw: 0, dPitch: -90 }; }
+  function spinLeft() { return { axis: Y, dir: -1, dYaw: -90, dPitch: 0 }; }
+  function turnLeft() { return { axis: Y, dir: -1, dYaw: -90, dPitch: 0 }; }
+  function tipToward() { return { axis: X, dir: 1, dYaw: 0, dPitch: 90 }; }
+
+  var ROUTES = {
+    /*
+     * The phone is above the cube, so the face it reads is the TOP one, and
+     * the route is rolls: three of them cover the top, back, bottom and front,
+     * and the last two need a quarter turn first to bring a side face round to
+     * where a roll can reach it.
+     *
+     * A roll about the front-back axis would be the tidy way to fetch the two
+     * sides, and it is not available: the renderer has a yaw and a pitch and
+     * no roll, so an instruction it cannot draw is an instruction that has to
+     * be said in two parts instead. Turn, then roll.
+     */
+    camera: {
+      face: 0,               // U
+      view: { yaw: 180, pitch: 90 },
+      steps: [
+        { moves: [], arrow: '', text: 'Stand the cube in front of the camera, any face up.' },
+        { moves: [tip()], arrow: '▼',
+          text: 'ROLL the cube toward you — the face that was at the back comes up.' },
+        { moves: [tip()], arrow: '▼',
+          text: 'Roll it toward you again: now the face that was underneath is up.' },
+        { moves: [tip()], arrow: '▼',
+          text: 'Once more toward you, for the face that started nearest you.' },
+        { moves: [spinLeft(), tip()], arrow: '◄',
+          text: 'Now a quarter turn to the LEFT first, then roll toward you again — that brings a side face up.' },
+        { moves: [tip(), tip()], arrow: '▼',
+          text: 'Roll it toward you twice more, and that is the last face.' }
+      ]
+    },
+    /*
+     * Nobody is holding a phone here — this is the map screen, where the face
+     * being painted is the one toward you, so a turn about the upright axis is
+     * what brings a new one round.
+     */
+    hand: {
+      face: 2,               // F
+      view: { yaw: 0, pitch: 0 },
+      steps: [
+        { moves: [], arrow: '', text: 'Hold the cube upright, any face toward you.' },
+        { moves: [turnLeft()], arrow: '◄',
+          text: 'Turn the cube LEFT — the right-hand face comes round to the front.' },
+        { moves: [turnLeft()], arrow: '◄',
+          text: 'Turn it LEFT again — now the back face.' },
+        { moves: [turnLeft()], arrow: '◄',
+          text: 'Once more to the LEFT — the left-hand face.' },
+        { moves: [tipToward()], arrow: '▼',
+          text: 'Now TIP the cube toward you — the top face comes round to the front.' },
+        { moves: [tipToward(), tipToward()], arrow: '▼',
+          text: 'TIP it toward you twice more — the bottom face, and the last one.' }
+      ]
+    }
+  };
 
   function identity(n) {
     var p = new Int32Array(n);
@@ -93,7 +160,9 @@
     this.size = opts.size || 3;
     this.colors = opts.colors || [];
     this.state = opts.state || null;
-    this.startText = opts.startText || SEQ[0].text;
+    this.route = ROUTES[opts.route] || ROUTES.hand;
+    this.seq = this.route.steps;
+    this.startText = opts.startText || this.seq[0].text;
     this.step = 0;
     this.W = identity(6 * this.size * this.size);
     this.yaw = 0;
@@ -113,7 +182,7 @@
     }
   }
 
-  CubeGuide.STEPS = SEQ.length;
+  CubeGuide.STEPS = ROUTES.hand.steps.length;
 
   CubeGuide.prototype.setSize = function (N) {
     this.size = N;
@@ -138,17 +207,17 @@
    * top of the one they are still looking at.
    */
   CubeGuide.prototype.setStep = function (n, animate, onDone, hold) {
-    n = Math.max(0, Math.min(SEQ.length - 1, n));
+    n = Math.max(0, Math.min(this.seq.length - 1, n));
     this.step = n;
 
     var W = identity(6 * this.size * this.size);
-    var yaw = 0, pitch = 0;
+    var yaw = this.route.view.yaw, pitch = this.route.view.pitch;
     for (var i = 1; i <= n; i++) {
-      var s = SEQ[i];
-      for (var t = 0; t < s.turns; t++) {
-        W = compose(W, rotationFor(this.size, s.axis, s.dir));
-        yaw += s.dYaw;
-        pitch += s.dPitch;
+      var moves = this.seq[i].moves;
+      for (var t = 0; t < moves.length; t++) {
+        W = compose(W, rotationFor(this.size, moves[t].axis, moves[t].dir));
+        yaw += moves[t].dYaw;
+        pitch += moves[t].dPitch;
       }
     }
     this.W = W;
@@ -164,7 +233,7 @@
 
   CubeGuide.prototype.next = function (onDone, hold) { this.setStep(this.step + 1, true, onDone, hold); };
   CubeGuide.prototype.back = function (onDone) { this.setStep(this.step - 1, true, onDone); };
-  CubeGuide.prototype.atEnd = function () { return this.step >= SEQ.length - 1; };
+  CubeGuide.prototype.atEnd = function () { return this.step >= this.seq.length - 1; };
 
   CubeGuide.prototype.spinTo = function (yaw, pitch, onDone, hold) {
     var self = this;
@@ -205,7 +274,7 @@
    * left to right, top to bottom, as a photo of it would come out.
    */
   CubeGuide.prototype.faceCells = function () {
-    var per = this.size * this.size, base = 2 * per;   // 2 is F, the front
+    var per = this.size * this.size, base = this.route.face * per;
     var out = new Array(per);
     for (var k = 0; k < per; k++) out[k] = this.W[base + k];
     return out;
@@ -214,7 +283,7 @@
   /** Which of the cube's own six faces is the one toward you. */
   CubeGuide.prototype.faceIndex = function () {
     var per = this.size * this.size;
-    return Math.floor(this.W[2 * per] / per);
+    return Math.floor(this.W[this.route.face * per] / per);
   };
 
   /** Write what was photographed (or painted) into the cube's own frame. */
@@ -225,10 +294,10 @@
   };
 
   CubeGuide.prototype.instruction = function () {
-    var s = SEQ[this.step];
+    var s = this.seq[this.step];
     return { arrow: s.arrow, text: this.step === 0 ? this.startText : s.text, step: this.step };
   };
 
-  CubeGuide.SEQ = SEQ;
+  CubeGuide.ROUTES = ROUTES;
   return CubeGuide;
 });

@@ -6,9 +6,11 @@
  * and one button. A finished scan does not stop to ask anything — it solves and
  * goes straight to the first move.
  *
- * Both ways in now follow the same route around the cube — front, three turns
- * to the left, then tip for the top and the bottom — with a grey cube on screen
- * turning the way your hands should. That route and the bookkeeping under it
+ * Both ways in are guided round the cube by a grey cube on screen that turns
+ * the way your hands should, and they take different routes for a reason: the
+ * scanner's phone is above the cube, so the face it reads is the top one and
+ * the route is rolls, while the map screen has no phone and the face being
+ * painted is the one toward you. Both routes and the bookkeeping under them
  * live in guide.js.
  */
 (function () {
@@ -69,8 +71,9 @@
   /*
    * Which of the two roads out of the scanner this is.
    *
-   *   fast    — Kociemba's answer, about 20 turns, none of which mean anything
-   *   academy — the layer-by-layer method, seven named stages, on your cube
+   *   fast    — the shortest answer a search can find, none of whose moves
+   *             mean anything on their own
+   *   academy — the layer-by-layer method, eight named stages, on your cube
    *
    * They are different solvers rather than different presentations, which is
    * why this is a mode and not a checkbox: the shortest solution cannot be
@@ -78,9 +81,25 @@
    * cannot be raced, because it is four times longer.
    */
   var mode = 'fast';
+  /*
+   * What each road costs, for the cube that is actually selected.
+   *
+   * This said "about 20 turns" whatever size was picked, which is true of a
+   * 3x3 and nonsense for the other two — a 2x2 is never more than eleven and a
+   * 4x4 runs to fifty-odd. A number on screen that does not move when the
+   * thing it describes changes is worse than no number at all.
+   */
   var MODE_NOTE = {
-    fast: 'The shortest way home — about 20 turns, found by search.',
-    academy: 'Seven stages, taught on your own scramble. Longer, and you keep it.'
+    fast: {
+      2: 'The shortest solution that exists — never more than 11 turns.',
+      3: 'The shortest way home — about 20 turns, found by search.',
+      4: 'About 55 turns, found by a three-phase search.'
+    },
+    academy: {
+      2: 'Academy teaches the 3×3 method — a 2×2 gets the direct solution instead.',
+      3: 'Eight stages, taught on your own scramble. Longer, and you keep it.',
+      4: 'Academy teaches the 3×3 method — a 4×4 gets the direct solution instead.'
+    }
   };
   var introDone = {};     // stages whose lesson card has been read
   /*
@@ -105,22 +124,30 @@
   // ---- views -------------------------------------------------------------
 
   /*
-   * Square on, not off a corner, and fixed.
+   * Square on, from a little above, and fixed.
    *
-   * The old camera sat off a corner so three faces showed at once, which is
-   * more of the cube but a harder picture to match against the thing in your
-   * hands: every face is a skewed parallelogram and the layer that is about to
-   * turn runs diagonally away from you. Straight on, the front face is a
-   * square, the top is a shallow band above it, and a turn reads as up, down,
+   * Off a corner shows three faces at once, which is more of the cube but a
+   * harder picture to match against the thing in your hands: every face is a
+   * skewed parallelogram and the layer about to turn runs diagonally away from
+   * you. Square on, the front face is a square and a turn reads as up, down,
    * left or right — the same words the instructions use.
+   *
+   * The height is the part that had to change. A scan is taken with the phone
+   * held over the cube, so the face someone has just been staring at is the
+   * TOP one, and it is what the finished cube is now turned to match (see
+   * orientToPhoto). Drawing that reference face as a shallow 30-degree band
+   * above the front made the one face they could identify the hardest one to
+   * see. At 42 degrees the top is a proper face and the front is still a
+   * square-ish one, which is roughly the angle you are looking from anyway
+   * with a phone in one hand and a cube on the table.
    *
    * And it does not move. Being able to drag the cube around sounds like a
    * feature and is not: one accidental swipe and the picture no longer matches
    * the cube in your hand, with nothing to say it has happened and no way back
    * to square except by feel.
    */
-  var FRONT_VIEW = { yaw: 0, pitch: 30 };
-  var BACK_VIEW = { yaw: 180, pitch: -30 };
+  var FRONT_VIEW = { yaw: 0, pitch: 42 };
+  var BACK_VIEW = { yaw: 180, pitch: -42 };
 
   var previewFront = new CubeView($('preview-front'), {
     colors: PALETTE, state: colorState, draggable: false,
@@ -138,6 +165,9 @@
   // The grey cube on the map screen: the same route the scanner walks, so a
   // cube typed in by hand is turned the same way as one that is photographed.
   var editGuide = new CubeGuide($('edit-guide-canvas'), {
+    // no phone here: the face you paint is the one toward you, so this is the
+    // turn-it-in-your-hands route rather than the scanner's overhead one
+    route: 'hand',
     size: size, colors: PALETTE, state: colorState, startText: ''
   });
 
@@ -278,6 +308,7 @@
     document.querySelectorAll('.size-option').forEach(function (b) {
       b.classList.toggle('is-active', +b.dataset.size === size);
     });
+    setMode(mode);            // what each road costs depends on the size
     setMessage('');
     save();
   }
@@ -294,7 +325,8 @@
    */
   function updateHoldText() {
     if (orientedFromScan) {
-      editGuide.startText = 'Hold the cube exactly as you did for your last photo.';
+      editGuide.startText = 'Hold the cube exactly as you did for your last photo — that face is the ' +
+        'one on top here, because that is where the camera was.';
     } else if (size !== 3) {
       editGuide.startText = 'Hold the cube upright with any face toward you — a ' + size + '×' + size +
         ' has no fixed centre, so it is the order that matters, not which face you start on.';
@@ -846,7 +878,7 @@
   function teaching() { return !!(plan && plan.teaching && plan.groups && plan.groups.length); }
 
   /**
-   * The method's seven stages, whether or not this cube needed all of them.
+   * The method's eight stages, whether or not this cube needed all of them.
    *
    * A scramble can arrive with a stage already done — the top cross falls into
    * place surprisingly often — and the solver then emits no moves for it, so
@@ -874,7 +906,7 @@
   }
 
   /*
-   * The seven stages as a row of dots: done, here, still to come — and a way
+   * The eight stages as a row of dots: done, here, still to come — and a way
    * back into any of them. Being able to see the shape of the method before
    * you are half way through it is most of what makes it feel learnable
    * rather than endless.
@@ -1062,7 +1094,7 @@
     if (atEnd) {
       $('move-title').textContent = 'Solved!';
       $('move-detail').textContent = teaching()
-        ? 'That is the whole method — all seven stages, on your own scramble. ' + total +
+        ? 'That is the whole method — every stage of it, on your own scramble. ' + total +
           ' moves. Do it again on a fresh scramble and you will need the cards less each time.'
         : 'Every face should now be a single colour. ' + total + ' moves. Nice work.';
       celebrate();
@@ -1401,7 +1433,7 @@
       b.classList.toggle('is-active', b.dataset.mode === mode);
       b.setAttribute('aria-pressed', b.dataset.mode === mode ? 'true' : 'false');
     });
-    $('mode-note').textContent = MODE_NOTE[mode];
+    $('mode-note').textContent = MODE_NOTE[mode][size] || MODE_NOTE[mode][3];
     try { localStorage.setItem(MODE_KEY, mode); } catch (e) { /* private mode */ }
   }
 

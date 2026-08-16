@@ -511,24 +511,31 @@
    *
    * The last photo is a much better answer, because it is the face they were
    * looking at a second ago and the cube is almost certainly still that way up.
-   * So the whole cube is turned until that face is at the front, the same way
-   * up as it was photographed, and the moves come out relative to how the cube
-   * is already being held.
+   *
+   * Which face of the finished cube that photo becomes is `face`, and it is
+   * the TOP one by default, because that is where the lens was: this app tells
+   * people to stand the cube on a table and hold the phone over it, so the
+   * face being photographed is the one pointing at the ceiling, not the one
+   * pointing at a person. Landing it at the front instead — which is what this
+   * did — turned the cube a quarter over from the way it was actually sitting,
+   * and every move after that was described from an angle nobody was looking
+   * from.
    *
    * Which of the 24 turns to use is not worked out, it is looked up: apply each
-   * and keep the one whose front face comes out exactly equal to the photo. If
+   * and keep the one whose chosen face comes out exactly equal to the photo. If
    * none does — the assembler settled on a different reading, or a colour was
    * named differently — nothing changes, which is no worse than before.
    */
-  function orientToPhoto(state, photoCells, N) {
+  function orientToPhoto(state, photoCells, N, face) {
     var per = N * N;
+    var slot = (face === undefined ? 0 : face) * per;    // 0 is U, the top
     if (!state || !photoCells || photoCells.length !== per) return state;
     var turns = CubeN.rotations(N);
     for (var r = 0; r < turns.length; r++) {
       var rot = turns[r];
       var matches = true;
       for (var i = 0; i < per && matches; i++) {
-        if (state[rot[2 * per + i]] !== photoCells[i]) matches = false;
+        if (state[rot[slot + i]] !== photoCells[i]) matches = false;
       }
       if (!matches) continue;
       var out = new Int8Array(state.length);

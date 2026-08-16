@@ -173,9 +173,11 @@
     this.guideState = new Int8Array(6 * N * N).fill(-1);
     this.guide = new CubeGuide(this.el.guideCanvas, {
       size: N,
+      // the phone is above the cube, so the face being read is the top one
+      route: 'camera',
       colors: this.guideColors,
       state: this.guideState,
-      startText: 'Stand the cube on a flat surface in even light, any face toward the camera.'
+      startText: 'Stand the cube on a flat surface in even light, and hold the phone over it.'
     });
     this.showGuide();
   };
