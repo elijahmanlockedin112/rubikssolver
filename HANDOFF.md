@@ -86,7 +86,7 @@ and it says so rather than guessing.
 
 ```bash
 npm test                  # 296 checks, no browser needed, ~4 min
-npm run test:mobile       # 74 layout/behaviour tests over 6 phone profiles
+npm run test:mobile       # 80 layout/behaviour tests over 6 phone profiles
 npm run test:camera       # the scanner end to end on a fake camera
 node tools/serve.js       # localhost:8123
 ```
@@ -699,6 +699,31 @@ and a follow-up that moved them back. The lasting value of it is this note,
 `test/guide.test.js`'s all-six-faces check — which is what catches a route
 whose rotations do not change the face being looked at — and the size-aware
 mode notes, which were in the same commit and stayed.
+
+### A canvas has two sizes, and they have to agree
+
+The box CSS gives it, and the grid of pixels inside it. When they disagree the
+browser stretches one onto the other, silently — no error, no warning, just a
+cube drawn the wrong shape.
+
+`render.js` caches its measurement (it used to call `getBoundingClientRect`
+every frame for every view, which is a full page layout sixty times a second),
+so the cache has to be told when the box changes. Becoming visible told it and
+a window resize told it, and between them they missed the ordinary case: **a
+screen that is already up and rearranges underneath**. Switching a solve into
+Academy grows the instruction card and adds the stage strip, so the canvas
+loses more than half its height without ever leaving the screen — and the cube
+came out 2.2x too tall.
+
+A `ResizeObserver` on the canvas itself is the fix and covers every cause at
+once. It cannot feed back on itself: setting `canvas.width` changes the pixel
+grid, not the CSS box.
+
+`the cube is never drawn out of shape` in the mobile suite is the guard. It
+compares the shape of each canvas's box against the shape of its pixels, on
+every screen and across a mode switch, and it fails at exactly 2.21x with the
+observer disabled — worth knowing, because a distorted cube is the sort of
+thing that looks like a rendering opinion rather than a bug.
 
 ### The audit, and what it found
 

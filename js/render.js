@@ -131,6 +131,29 @@
       });
       this.watcher.observe(canvas);
     }
+
+    /*
+     * And a watch on the box itself, which is what stops the cube being drawn
+     * the wrong shape.
+     *
+     * The measurement is cached — it used to be taken every frame, which meant
+     * laying the page out sixty times a second per view — and the cache has to
+     * be told when the box changes. Becoming visible tells it, and so does a
+     * window resize, and between them they miss the ordinary case: a screen
+     * that is already up and rearranges underneath. Switching a solve into
+     * Academy grows the instruction card and adds the stage strip, so the
+     * canvas loses more than half its height while staying on screen the whole
+     * time — and the backing store kept its old size while CSS stretched it to
+     * the new box. Measured: 702x728 pixels of cube smeared over a 702x329
+     * canvas, a cube two and a bit times too tall.
+     *
+     * Setting canvas.width does not change the CSS box, so this cannot feed
+     * back on itself.
+     */
+    if (typeof ResizeObserver === 'function') {
+      this.sizeWatcher = new ResizeObserver(function () { self.remeasure(); });
+      this.sizeWatcher.observe(canvas);
+    }
     LIVE.push(this);
     this.start();
     if (opts.draggable !== false) this.enableDrag();
@@ -237,6 +260,7 @@
   CubeView.prototype.destroy = function () {
     this.stop();
     if (this.watcher) { this.watcher.disconnect(); this.watcher = null; }
+    if (this.sizeWatcher) { this.sizeWatcher.disconnect(); this.sizeWatcher = null; }
     var at = LIVE.indexOf(this);
     if (at >= 0) LIVE.splice(at, 1);
   };

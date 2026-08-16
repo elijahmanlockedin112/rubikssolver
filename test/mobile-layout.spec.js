@@ -543,6 +543,78 @@ test('the solve screen shows one move at a time, with nothing to press but Next'
     expect(seen.filter(Boolean).length, 'four moves in a row should each say something').toBe(4);
   });
 
+/**
+ * How far a canvas is being stretched: the shape of its box against the shape
+ * of the pixels inside it. 1 is square; 2 means everything is drawn twice as
+ * tall as it should be.
+ */
+function stretch(page, selector) {
+  return page.evaluate(function (sel) {
+    var c = document.querySelector(sel);
+    if (!c) return { missing: sel };
+    var box = c.getBoundingClientRect();
+    if (!c.width || !c.height || !box.height) return { missing: sel + ' has no size' };
+    return {
+      ratio: (box.width / box.height) / (c.width / c.height),
+      css: Math.round(box.width) + 'x' + Math.round(box.height),
+      backing: c.width + 'x' + c.height
+    };
+  }, selector);
+}
+
+async function expectSquare(page, selector, where) {
+  var s = await stretch(page, selector);
+  expect(s.missing, 'missing canvas: ' + s.missing).toBeUndefined();
+  expect(Math.abs(s.ratio - 1) < 0.02,
+    where + ': ' + selector + ' is drawn ' + s.ratio.toFixed(2) + 'x out of shape — ' +
+    'its box is ' + s.css + ' and its pixels are ' + s.backing).toBe(true);
+}
+
+/*
+ * The cube is never drawn the wrong shape.
+ *
+ * A canvas has two sizes — the box CSS gives it, and the grid of pixels inside
+ * it — and if they disagree the browser stretches one onto the other silently.
+ * The measurement is cached (it used to be taken every frame, which laid the
+ * page out sixty times a second per view), so the cache has to be told when the
+ * box changes. Becoming visible tells it and a window resize tells it, and
+ * between them they missed the ordinary case: a screen that is already up and
+ * rearranges underneath. Switching a solve into Academy grows the instruction
+ * card and adds the stage strip, and the cube was left 2.2x too tall.
+ *
+ * Every canvas, on every screen, including across a mode switch.
+ */
+test('the cube is never drawn out of shape', async function ({ page }) {
+  await expectSquare(page, '#preview-front', 'home');
+  await expectSquare(page, '#preview-back', 'home');
+
+  // the scanner opens from the home screen, so it goes first
+  await openScanner(page);
+  await expectSquare(page, '#scan-guide-canvas', 'the scanner');
+  await page.locator('#scan-close').click();
+
+  await openMap(page);
+  await expectSquare(page, '#edit-guide-canvas', 'the map');
+
+  // already on the map, so solve from here rather than going round again
+  await page.locator('#btn-example').click();
+  await page.locator('#btn-solve').click();
+  await expect(page.locator('#view-solve')).toBeVisible({ timeout: 60000 });
+  await page.waitForTimeout(300);
+  await expectSquare(page, '#solve-front-canvas', 'solving');
+
+  // the switch that broke it: same screen, rearranged underneath
+  await page.locator('#btn-mode').click();
+  await expect(page.locator('#stage-strip')).toBeVisible({ timeout: 60000 });
+  await page.waitForTimeout(300);
+  await expectSquare(page, '#solve-front-canvas', 'switched to Academy');
+
+  await page.locator('#btn-mode').click();
+  await expect(page.locator('#stage-strip')).toBeHidden({ timeout: 60000 });
+  await page.waitForTimeout(300);
+  await expectSquare(page, '#solve-front-canvas', 'switched back');
+});
+
 /*
  * The same face photographed twice, caught at the time.
  *
