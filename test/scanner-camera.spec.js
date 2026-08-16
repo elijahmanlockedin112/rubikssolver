@@ -30,7 +30,7 @@ async function scan(page, size, seconds) {
   await page.goto('/');
   await page.evaluate(function () { try { localStorage.clear(); } catch (e) { /* private mode */ } });
   await page.reload();
-  await expect(page.locator('#net .sticker').first()).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('#btn-scan')).toBeVisible({ timeout: 30000 });
   await page.locator('.size-option[data-size="' + size + '"]').click();
 
   // count the shutter blinks and the live-loop ticks from the outside
@@ -66,6 +66,14 @@ async function scan(page, size, seconds) {
       total: stickers.length
     };
   }));
+}
+
+/** Which of the three screens is showing. */
+function screen(page) {
+  return page.evaluate(function () {
+    var on = [].filter.call(document.querySelectorAll('main'), function (m) { return !m.hidden; });
+    return on.length ? on[0].id : 'none';
+  });
 }
 
 test('the scanner reads a whole cube without being touched', async function ({ page }, testInfo) {
@@ -108,8 +116,19 @@ test('the scanner reads a whole cube without being touched', async function ({ p
    */
   expect(got.flashes, 'a blink per photo except the last, which closes the scanner').toBe(5);
 
-  // and the whole thing said something true about the cube it read
-  expect(got.setupMessage.toLowerCase()).toMatch(/scanned/);
+  /*
+   * And then it solved it without being asked.
+   *
+   * A finished scan used to hand the colours back to the map and stop, which
+   * left the one thing anybody scanned for — the moves — behind a second
+   * button. The scanner closing and the first move appearing is now one event,
+   * so this waits for the solve screen rather than for a message: the 3x3 has
+   * to build Kociemba's tables first, and the 4x4 runs a three-phase search.
+   */
+  await expect(page.locator('#view-solve')).toBeVisible({ timeout: 60000 });
+  expect(await screen(page), 'the screen it landed on').toBe('view-solve');
+  var move = await page.locator('#move-counter').textContent();
+  expect(move, 'the solve screen should be on a move: ' + move).toMatch(/Move 1 of \d+/);
 
   // the live loop must be stopped, not merely invisible
   var before = await page.evaluate(function () { return window.__ticks; });

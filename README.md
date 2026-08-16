@@ -16,15 +16,23 @@ accounts, no API keys, no network. Open `index.html` and it works, offline, fore
 1. Open the [live version](https://elijahmanlockedin112.github.io/rubikssolver/),
    or `index.html` from a copy of this repo. On a phone, use the live version —
    browsers only hand over the camera on an https:// address.
-2. Enter your cube's colors — either **scan them with your camera** (six snaps,
-   any order, any way up) or click them onto the flat map / the 3D cube.
-3. Pick a solution style:
-   - **Fewest moves** — around 20 moves, found by a two-phase search.
-   - **Teach me** — around 110 moves in seven named stages you could learn.
-4. Hit solve and follow the pictures. Space plays and pauses, ← → step.
+2. Pick your cube's size and press **Scan my cube**. Hold each face up to the
+   camera; it takes the six photos itself, any order, any way up.
+3. That is the whole flow. The scan feeds straight into the solver and you land
+   on the first move — there is nothing to confirm and no solution style to
+   choose. Press **Next** for each turn (← → and space work too).
 
-Keep the cube in the same orientation the whole way through — the banner at the
-top of the solve screen reminds you which color goes up and which faces you.
+If you would rather type the colours in, or fix one the camera got wrong,
+*Type the colours in instead* opens the map.
+
+Keep the cube in the same orientation the whole way through. After a scan there
+is nothing to line up at all: the cube on screen has been turned to match your
+last photo, so however you are already holding it is right.
+
+The whole app is built for a phone held in one hand with a cube in the other:
+three screens, each exactly one window tall, none of which ever scrolls. Every
+half turn is shown as two separate quarter turns, slowly, because a 180° spin
+has no direction to read.
 
 ## Hosting it
 
@@ -96,7 +104,7 @@ survives; when more than one does, the app says so rather than guessing quietly.
 | --- | --- |
 | `js/cube.js` | Cube state: 54 facelets, the six moves as permutations, and a validator that explains *why* an impossible cube is impossible. |
 | `js/kociemba.js` | Two-phase solver. Builds ~4 MB of move and pruning tables, then runs two IDA\* searches. Typically 20 moves in ~250 ms. |
-| `js/solver.js` | Layer-by-layer beginner solver: bottom cross, bottom corners, middle edges, top cross, top face, place corners, last edges. |
+| `js/solver.js` | Layer-by-layer beginner solver: bottom cross, bottom corners, middle edges, top cross, top face, place corners, last edges. **Not loaded by the app** — the "teach me" style it produced was a second question to answer before getting an answer, so the app now always takes the short solution. The module and its tests still stand on their own. |
 | `js/render.js` | A small software 3D renderer on a 2D canvas — 27 cubies, painter's algorithm, backface culling, animated layer turns and curved direction arrows. No WebGL, no libraries. |
 | `js/detect.js` | Finds the 3×3 grid in a photo: blob segmentation, a RANSAC-style lattice search, and a check that the seams are darker than the stickers. Runs in a few milliseconds, so it also drives the live outline. |
 | `js/assemble.js` | Names the colors against the six centres with a nine-per-color quota, then fits six unordered, arbitrarily-rotated faces into one cube by finding the arrangement that is physically possible. |
@@ -157,10 +165,14 @@ node test/solver.test.js 1000
 - The camera needs a secure context. Browsers usually allow it for a file
   opened directly, but if yours refuses, serve the folder over `http://localhost`
   and it will work.
-- "Fewest moves" is near-optimal, not proven optimal. God's number is 20;
+- The 3×3 solution is near-optimal, not proven optimal. God's number is 20;
   a proven-optimal solver needs vastly larger tables and far more time for the
-  last move or two.
-- 3×3×3 only.
+  last move or two. The move count you see is higher than that, because every
+  half turn is counted — and shown — as two quarter turns.
+- 2×2, 3×3 and 4×4. A 5×5 has the model and the renderer but no solver.
+- The sticker map is the fallback, not the front door, and it shows: fitting a
+  4×4's 96 stickers onto a 375px phone without scrolling leaves them about 26px
+  across. Scanning is what that screen size is designed around.
 
 ## License
 

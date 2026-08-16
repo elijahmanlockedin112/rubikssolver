@@ -332,11 +332,13 @@ npm run test:camera       # the scanner end to end, on a fake camera, ~55s
 
 Six projects: iPhone SE (375), iPhone 15 (393) and Pixel 7 (412), each portrait
 and landscape. The iPhones run on WebKit because that is the engine iOS Safari
-is built on; the Pixel runs on Chromium. Per profile it checks that nothing
-overflows sideways at 2x2, 3x3 or 4x4, that every control clears 44px, that the
-stickers clear 32px, that the scanner fits on screen with its buttons reachable,
-and that the header and the scanner clear simulated notch and home-indicator
-insets. `--project=iphone-se` narrows it to one.
+is built on; the Pixel runs on Chromium. Per profile it checks that **no screen
+has to be scrolled**, that nothing overflows sideways at 2x2, 3x3 or 4x4, that
+every control on all three screens clears 44px, that the stickers clear 24px,
+that the home screen has not grown anything back onto it, that the scanner fits
+on screen with its buttons reachable, and that the header, the scanner and the
+solve screen's own top row clear simulated notch and home-indicator insets.
+`--project=iphone-se` narrows it to one.
 
 `npm run test:camera` is the other browser suite, and it is the only automated
 thing that drives the scanner itself. Chromium will read its webcam from a raw
@@ -395,6 +397,58 @@ cross needs four face-columns side by side, which on a 4x4 is sixteen stickers
 across. There were `env(safe-area-inset-*)` in neither the CSS nor the HTML
 before this; there are now, and `index.html` asks for `viewport-fit=cover`,
 without which iOS reports them all as zero.
+
+### The one-screen rebuild
+
+The page no longer scrolls anywhere. `html, body` are `overflow: hidden` and the
+body is a flex column of `100dvh` — `dvh`, because on iOS Safari `100vh` is the
+height with the address bar hidden, which is taller than what you can see. Each
+screen is a flex column with exactly one row that can give up space: the cube,
+or the sticker map.
+
+That has a sharp edge worth knowing about: **anything that does not fit is now
+clipped rather than scrolled**, silently. `no screen ever has to be scrolled` in
+the mobile suite is the guard, and it measures `scrollHeight` against
+`clientHeight`, which still reports the truth through a hidden overflow.
+
+Three screens rather than two:
+
+| Screen | Is |
+| --- | --- |
+| `#view-setup` | home: a size, a cube, and **Scan my cube**. Nothing else. |
+| `#view-edit` | the sticker map, for typing a cube in or fixing one sticker |
+| `#view-solve` | one move at a time. The header hides here (`body.solving`) so the cube gets the room, which is why this screen clears the notch with its own top row. |
+
+What changed in the flow, and why:
+
+- **A finished scan solves itself** and lands on move 1. The map-then-press-solve
+  step existed because the code had one, not because anyone wanted it. A scan
+  that does not assemble still lands on the map, with the reason.
+- **No solution style to choose.** `js/solver.js` (layer-by-layer, ~110 moves) is
+  no longer loaded by `index.html`; the fast solver is the only one. The module
+  and its tests are untouched and still pass on their own.
+- **No play, no speed slider.** Stepping is the whole interaction, so Next is the
+  big button and everything that existed to serve autoplay is gone.
+- **Half turns are split into two quarter turns** — `expandHalfTurns()` in
+  `app.js`. A 180° turn has no direction to read and both halves of it happen
+  too fast to follow. Move counts therefore read higher than the solver's:
+  a 20-move solution is about 31 steps. States that came with a solution (the
+  2x2 and 4x4 bring their own) are kept exactly as given at every original move
+  boundary; only the new midpoint is derived.
+- **`MOVE_MS = 1100`**, up from a default of 440. One quarter turn, slowly.
+- **The camera is square on** (`yaw 0, pitch 30`; the inset is `yaw 180, pitch
+  -30`) instead of off a corner. Three faces at once is more of the cube but a
+  harder picture to match against the thing in your hand.
+- **The map is fitted in JS**, not by a media query. `fitNet()` measures the box
+  and picks whichever of 2x3 or 3x2 faces gives the bigger sticker. A
+  ResizeObserver on the box refits it, because a message appearing underneath
+  changes the box as surely as turning the phone does.
+
+Measured on a 375x667 iPhone SE under WebKit, smallest sticker on the map:
+54px at 2x2, 31.2px at 3x3, 26px at 4x4 — down from the cross-free two-column
+figures above, and that is the trade: fitting a 4x4's 96 stickers into a screen
+that also cannot scroll is what costs it. The full six-profile table is in the
+header of `test/mobile-layout.spec.js`.
 
 ## Commands
 
