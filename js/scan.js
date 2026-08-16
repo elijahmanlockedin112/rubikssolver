@@ -32,8 +32,13 @@
       undo: document.getElementById('scan-undo'),
       close: document.getElementById('scan-close'),
       message: document.getElementById('scan-message'),
-      thumbs: document.getElementById('scan-thumbs')
+      thumbs: document.getElementById('scan-thumbs'),
+      flash: document.getElementById('scan-flash')
     };
+    // When to take the photo without being asked. All the judgement lives in
+    // autosnap.js, which needs no camera and is therefore the part with tests.
+    this.auto = new CubeAutoSnap();
+    this.lock = 0;   // 0..1, how much of the hold-still is done, for the outline
     this.ctx = this.el.canvas.getContext('2d', { willReadFrequently: true });
     this.overlayCtx = this.el.overlay.getContext('2d');
     this.work = document.createElement('canvas');
@@ -62,6 +67,11 @@
     this.size = null;
     this.sawInstead = 0;
     this.shownSize = '';
+    this.auto.reset();
+    this.lock = 0;
+    this.autoState = 'searching';
+    this.running = false;   // the live loop only starts once the camera is up
+    this.holdUntil = 0;
     this.el.capture.disabled = true;
     this.render();
     this.message('Starting the camera…');
@@ -81,13 +91,30 @@
     }).then(function () {
       self.el.capture.disabled = false;
       self.message('');
+      self.running = true;
       self.loop();
     }).catch(function (err) {
       self.message(cameraProblem(err), true);
     });
   };
 
+  /*
+   * `running` and not just cancelAnimationFrame, because of where close() gets
+   * called from.
+   *
+   * The sixth photo closes the scanner from inside the live loop —
+   * loop -> capture -> finish -> done -> close — and by then this.raf holds the
+   * handle of the frame currently being run, which cancelling does nothing to.
+   * Control then returns up the stack to the bottom of loop(), which schedules
+   * the next one, and the loop carries on for the life of the page: grabbing
+   * frames off a stopped video, running the detector on them several times a
+   * second, on a phone, with the scanner shut. It was silent before
+   * auto-capture — the leaked loop found nothing and said nothing — and turned
+   * up as "Turn the cube to a face you have not done yet" appearing after the
+   * modal had closed.
+   */
   Scanner.prototype.close = function (cancelled) {
+    this.running = false;
     if (this.stream) {
       this.stream.getTracks().forEach(function (t) { t.stop(); });
       this.stream = null;
@@ -110,8 +137,8 @@
     this.el.tip.textContent = done === 5
       ? 'Last one. However you hold the cube for this shot is how you should keep holding it — ' +
         'the moves will be written for this exact view, so there is nothing to line up afterwards.'
-      : 'Point a face at the camera and snap it. Any order, any way up — turn the cube however you ' +
-        'like between shots.';
+      : 'Hold a face up to the camera and keep still — it takes the photo itself once it is sure. ' +
+        'Any order, any way up. Snap takes one now if you would rather.';
     this.el.capture.textContent = 'Snap';
     this.el.undo.disabled = done === 0;
 
@@ -142,18 +169,50 @@
     return ctx.getImageData(0, 0, cw, ch);
   };
 
-  /** Live loop: look for a face a few times a second and outline it. */
+  /**
+   * Live loop: look for a face a few times a second, outline it, and take the
+   * photo once the same face has been held there long enough to be an offer
+   * rather than a glimpse.
+   *
+   * The photo is not this frame. This one is 320px across, for speed; capture()
+   * takes a fresh one at 900px and detects again, so what gets kept is exactly
+   * what a pressed button would have kept. This loop only decides when.
+   */
   Scanner.prototype.loop = function () {
     var self = this;
+    if (!this.running) return;
     var now = performance.now();
     if (!this.busy && now - this.lastLive > LIVE_INTERVAL) {
       this.lastLive = now;
       var frame = this.grab(this.work, this.workCtx, PREVIEW_EDGE);
       this.locked = frame ? this.look(frame) : null;
+
+      var verdict = this.auto.feed(this.locked, frame, now);
+      this.lock = verdict.lock;
+      this.autoState = verdict.state;
+
       this.drawOverlay(frame);
       this.showSize();
+      if (verdict.fire) this.capture(true);
     }
     this.raf = requestAnimationFrame(function () { self.loop(); });
+  };
+
+  /**
+   * The white blink that says a photo was taken.
+   *
+   * Without it an automatic capture is invisible: the thumbnail row gains a dot
+   * somewhere below the picture and nothing else happens, so there is no moment
+   * to associate with "that one is done". Restarting the animation needs the
+   * class off, a forced reflow, and the class back on, or a second shot within
+   * the same animation does nothing at all.
+   */
+  Scanner.prototype.flash = function () {
+    var el = this.el.flash;
+    if (!el) return;
+    el.classList.remove('is-firing');
+    void el.offsetWidth;
+    el.classList.add('is-firing');
   };
 
   /**
@@ -193,16 +252,31 @@
       'a ' + wanted + '×' + wanted + '. Change the size above, or show me the right cube.';
   };
 
-  /** Say what it can see right now, so the lock is obvious before pressing. */
+  /**
+   * Say what it can see and what it is about to do about it.
+   *
+   * Keyed and deduped because this runs several times a second and rewriting
+   * the same sentence 5x a second makes screen readers unusable and the line
+   * itself look broken. `holdUntil` is the other half: a successful shot leaves
+   * "Got it — 5 to go." on screen, and without a hold the very next look would
+   * replace it 180ms later with the prompt for the next face, so the one piece
+   * of feedback that a photo was taken would never be read.
+   */
   Scanner.prototype.showSize = function () {
     if (this.busy) return;
+    if (this.holdUntil && performance.now() < this.holdUntil) return;
+
     var size = this.locked ? this.locked.size : 0;
-    var key = size + ':' + (this.sawInstead || 0);
+    var key = size + ':' + (this.sawInstead || 0) + ':' + this.autoState;
     if (key === this.shownSize) return;
     this.shownSize = key;
 
+    if (this.autoState === 'turn') {
+      this.message('Turn the cube to a face you have not done yet.');
+      return;
+    }
     if (size) {
-      this.message(size + '×' + size + ' face found — ' + this.locked.points.length + ' stickers.', false);
+      this.message(size + '×' + size + ' face found — hold still and it will take itself.', false);
     } else {
       var wrong = this.wrongSizeMessage(this.size || this.opts.size);
       this.message(wrong || '', !!wrong);
@@ -237,18 +311,47 @@
       return [(box.x + p.x * k) * dpr, (box.y + p.y * k) * dpr];
     };
 
+    /*
+     * The outline says three different things now, so it has to look like
+     * three different things: waiting for the cube to be turned on, found and
+     * counting down, and — for the last fraction of a second — about to fire.
+     * Amber while disarmed is the important one. Without it a face sitting
+     * under a green outline that is never going to be photographed looks
+     * exactly like a face about to be, and the natural response is to hold
+     * even more still.
+     */
+    var turning = this.autoState === 'turn';
+    var corners = this.locked.quad.map(map);
+    var trace = function () {
+      ctx.beginPath();
+      corners.forEach(function (p, i) { if (i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]); });
+      ctx.closePath();
+    };
+
     ctx.lineJoin = 'round';
     ctx.lineWidth = 3 * dpr;
-    ctx.strokeStyle = 'rgba(55, 211, 154, 0.95)';
-    ctx.beginPath();
-    this.locked.quad.forEach(function (corner, i) {
-      var p = map(corner);
-      if (i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]);
-    });
-    ctx.closePath();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = turning ? 'rgba(255, 176, 32, 0.85)' : 'rgba(55, 211, 154, 0.35)';
+    trace();
     ctx.stroke();
 
-    ctx.fillStyle = 'rgba(55, 211, 154, 0.9)';
+    // and the part of it already earned, drawn round the perimeter like a
+    // fuse: full circuit means the shot goes now
+    if (!turning && this.lock > 0) {
+      var perim = 0;
+      for (var c = 0; c < corners.length; c++) {
+        var a = corners[c], b = corners[(c + 1) % corners.length];
+        perim += Math.hypot(a[0] - b[0], a[1] - b[1]);
+      }
+      ctx.lineWidth = 4 * dpr;
+      ctx.strokeStyle = 'rgba(55, 211, 154, 0.98)';
+      ctx.setLineDash([perim * this.lock, perim]);
+      trace();
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.fillStyle = turning ? 'rgba(255, 176, 32, 0.8)' : 'rgba(55, 211, 154, 0.9)';
     this.locked.points.forEach(function (p) {
       var q = map(p);
       ctx.beginPath();
@@ -257,16 +360,39 @@
     });
   };
 
-  Scanner.prototype.capture = function () {
+  /**
+   * Keep the frame in front of the camera. `fromAuto` when the live loop
+   * decided rather than a thumb.
+   *
+   * Every path out of here that does not keep a photo still stands the
+   * auto-capture down for its cooldown. Otherwise a shot that fails at full
+   * size, or one refused as a face already taken, is retried on the very next
+   * look and every look after that — a message flickering several times a
+   * second at someone holding a cube perfectly still, wondering what they did.
+   */
+  Scanner.prototype.capture = function (fromAuto) {
     if (!this.stream || this.busy) return;
+    var now = performance.now();
     var frame = this.grab(this.el.canvas, this.ctx, CAPTURE_EDGE);
-    if (!frame) { this.message('The camera is not ready yet.', true); return; }
+    if (!frame) {
+      this.auto.pause(now);
+      this.message('The camera is not ready yet.', true);
+      return;
+    }
 
     var found = this.look(frame);
     if (!found || found.failed) {
+      this.auto.pause(now);
       var wanted = this.size || this.opts.size || 3;
       var wrong = this.wrongSizeMessage(wanted);
       if (wrong) { this.message(wrong, true); return; }
+      /*
+       * A miss the live loop talked itself into is not worth a diagnostic
+       * frame. reportMiss posts the picture to the local server, and the whole
+       * point of that file is to collect shots a person took and expected to
+       * work; filling the folder with frames nobody asked for buries them.
+       */
+      if (fromAuto) { this.message('Not quite — hold it a little steadier.'); return; }
       var why = CubeDetect.detectFace(frame, { size: wanted, debug: true });
       this.reportMiss(frame, why && why.debug);
       return;
@@ -282,6 +408,8 @@
     if (center) {
       for (var i = 0; i < this.centers.length; i++) {
         if (CubeAssemble.colorCost(center, this.centers[i]) < 12) {
+          // disarmed against this face, so it waits for the cube to be turned
+          this.auto.captured(found.samples, found.size, now);
           this.message('That is the same face as photo ' + (i + 1) + '. Turn the cube to a face you ' +
             'have not done yet.', true);
           return;
@@ -289,12 +417,15 @@
       }
     }
 
+    this.auto.captured(found.samples, found.size, now);
+    this.flash();
     this.samples.push(found.samples);
     this.centers.push(center || averageColor(found.samples));
 
     if (this.samples.length >= 6) { this.finish(); return; }
     this.render();
     this.message('Got it — ' + (6 - this.samples.length) + ' to go.');
+    this.holdUntil = now + 1200;   // long enough to be read before the next prompt
   };
 
   /**
@@ -344,6 +475,18 @@
     if (!this.samples.length || this.busy) return;
     this.samples.pop();
     this.centers.pop();
+    /*
+     * Forget which face was last kept, or the face just thrown away is still
+     * the one auto-capture is refusing to take, and "Redo last" would leave it
+     * amber and inert at exactly the moment it is meant to be retaken. The
+     * hold-still still has to be earned again from scratch, so this does not
+     * put the same shot straight back.
+     */
+    this.auto.reset();
+    this.lock = 0;
+    this.autoState = 'searching';
+    this.shownSize = '';
+    this.holdUntil = 0;
     this.render();
     this.message('');
   };

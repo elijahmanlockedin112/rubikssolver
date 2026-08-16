@@ -52,6 +52,7 @@ that exists (never more than 11 moves). Scanning works, though six faces of a
 | `js/tpr.js` | three-phase 4x4 solver, ~45 moves |
 | `js/solver4.js` | 4x4 by reduction — the fallback, and what the tests drive |
 | `js/repair.js` | fixes an obviously-wrong cube, refuses ambiguous ones |
+| `js/autosnap.js` | when a face has been recognised well enough to photograph it unasked |
 | `js/render.js` | software 3D on a 2D canvas, any size |
 | `js/scan.js`, `js/app.js` | scanner and UI |
 
@@ -122,6 +123,71 @@ whichever way up it is photographed, so it turns up under several different
 order-and-rotation pairs. On a 2x2, where a face is four stickers, that is
 common enough that a third of perfectly certain cubes were calling themselves
 ambiguous.
+
+## Auto-capture (js/autosnap.js)
+
+Nobody presses anything. Hold a face up, hold still for about two-thirds of a
+second, and it takes the photo — six times, and the scanner closes itself. The
+outline fills in green as it makes up its mind, the picture blinks white when it
+has one, and the outline goes amber while it waits for the cube to be turned to
+a face it has not done.
+
+The judgement is a separate file from `scan.js` on purpose: `scan.js` needs a
+camera, a canvas and a DOM, and this needs a list of numbers, so this is the
+part that can be tested. `test/autosnap.test.js` drives it with faces of
+actually scrambled cubes rendered and run through the real `detect.js`.
+
+Two failures matter, and they pull opposite ways.
+
+**Firing too eagerly** keeps a photo nobody would have taken. One frame saying
+"there is a grid here" is not confidence — a half-turned cube, a hand crossing
+the shot, or a blurred frame all produce one. So a face has to be found in four
+consecutive looks, in the same place, at the same size, at the same angle,
+reading the same colours.
+
+The angle of the grid is what actually separates a held cube from a turning one,
+and it was not the first thing tried. Drift was, measured as a fraction of one
+cell — and the same 7px-per-look turn reads as 0.29 on a small cube and 0.20 on
+a big one, so a slow turn of a cube filling the frame slipped past in 2 runs of
+12. Grid angle does not care how big the cube is: **held 0.010 rad per look
+(p99 0.034), turning 0.100 (p01 0.089)**, and the bar sits at 0.06 between them.
+
+**Firing twice** is the other. After a shot the cube is still sitting in front
+of the camera showing the face just taken, and the naive loop photographs it
+again, and again, filling all six slots in about four seconds with six pictures
+of one face — which then cannot assemble, for no reason the scanner can explain.
+So capturing disarms, and rearming needs the view to become something else: the
+face gone, or a face reading more than 10 away, for three looks running.
+
+Measured over real pairs of faces from scrambled cubes: **one face against
+itself a quarter turn round comes to 1.3 at worst; two different faces to 7.76
+at the very closest on a 2x2, 24.69 on a 3x3, 34.88 on a 4x4.** The bar is
+deliberately at the top of that gap, because the two mistakes do not cost the
+same: calling a face new when it is not means a duplicate photo and six faces
+that will not fit; calling it old when it is not means one tap on Snap. On a
+2x2, 1 pair in 499 wants that tap. On a 3x3 and a 4x4, none in 500 did.
+
+A 3x3 had this protection already — `capture()` refuses a face whose centre
+sticker matches one it has. The rearm is what covers the 2x2 and the 4x4, which
+have no centre sticker and nothing else to go on. That is worth knowing when
+testing it: a 3x3 held in front of the camera sits at one photo with the rearm
+deliberately deleted, and proves nothing.
+
+### Two things this turned up
+
+- **The live loop never stopped.** The sixth photo closes the scanner from
+  inside the loop — `loop → capture → finish → done → close` — so
+  `cancelAnimationFrame` was cancelling the frame it was already running, and
+  the bottom of the same function scheduled another. The detector kept running
+  several times a second, on a stopped video, for the life of the page, on a
+  phone. It was silent before auto-capture and showed up as "Turn the cube to a
+  face you have not done yet" appearing after the modal had closed. `running`
+  is the flag that fixes it, and `scanner-camera.spec.js` checks the loop is
+  stopped rather than merely invisible.
+- **The flash never plays on the sixth photo**, because the modal is hidden in
+  the same tick. Left alone — the scanner vanishing and the map filling in is
+  louder feedback than a blink — but the test asserts 5 blinks, not 6, so that
+  if the closing is ever delayed it says so.
 
 Note that 2 must stay out of `detectAny`'s size list — a 2x2 lattice fits inside
 every larger grid, so it would match anything. The app scans the size that is
@@ -253,10 +319,89 @@ symmetry tables or the two-bit packing are wrong, which a move list will not.
    actual frames; `test/realshots.test.js` replays them. Synthetic tests passed
    100% while the scanner did not work on a real cube even once.
 
+## On a phone
+
+This app is used almost entirely on a phone — that is what the Tailscale address
+is for — so phone layout is the primary surface, not a fallback. There are two
+halves to checking it, and they do not overlap.
+
+```bash
+npm run test:mobile       # Playwright, six emulated profiles, ~20s
+npm run test:camera       # the scanner end to end, on a fake camera, ~55s
+```
+
+Six projects: iPhone SE (375), iPhone 15 (393) and Pixel 7 (412), each portrait
+and landscape. The iPhones run on WebKit because that is the engine iOS Safari
+is built on; the Pixel runs on Chromium. Per profile it checks that nothing
+overflows sideways at 2x2, 3x3 or 4x4, that every control clears 44px, that the
+stickers clear 32px, that the scanner fits on screen with its buttons reachable,
+and that the header and the scanner clear simulated notch and home-indicator
+insets. `--project=iphone-se` narrows it to one.
+
+`npm run test:camera` is the other browser suite, and it is the only automated
+thing that drives the scanner itself. Chromium will read its webcam from a raw
+Y4M file, so `tools/make-cube-video.js` renders six faces of a scrambled cube
+being held up to one, and the suite watches getUserMedia, the live loop,
+auto-capture, six faces and the assembler do their thing on a 2x2, a 3x3 and a
+4x4 — plus one face held up and never turned away, on the two sizes with no
+centre sticker, which is the double-capture case. Chromium only: the flag does
+not exist in WebKit, so this is the one part that cannot pretend to be an
+iPhone. The videos are built into the OS temp directory, about 34MB each.
+
+**Neither is part of `npm test`.** The fifteen-file Node suite must keep running
+on a machine with no Playwright and no 300MB browser download, so both go
+through `tools/mobile-test.js`, which checks for both and prints the install
+command and exits 0 rather than failing. Playwright is a devDependency; the
+shipped app is still plain files with no build and no dependencies.
+
+To set it up on a fresh machine:
+
+```bash
+npm install --save-dev @playwright/test
+npx playwright install webkit chromium
+```
+
+**`test/MOBILE-CHECKLIST.md` is the other half**, and it is not optional. There
+is no camera, no notch, no touch and no Safari under emulation, so the whole
+scanning path — permission, the live green outline, six snaps assembling into a
+cube — has never actually run there. Nor has the thing this app is really about:
+that the solved cube is turned to match the **last** photo, so the moves suit
+how the cube is already being held. That is a claim about how it feels in the
+hand and only a person holding a cube can settle it.
+
+### What the phone work changed, measured on a 375px iPhone SE
+
+Stickers and overflow under WebKit, which is what the suite asserts; the
+control sizes and the landscape figures under Chromium at 812x375.
+
+| | before | after |
+| --- | --- | --- |
+| document overflow | 1px (the panel's min-content was 366px in a 355px column) | 0px |
+| 2x2 sticker | 37.3px | 78.3px |
+| 3x3 sticker | 24.3px | 51.7px |
+| 4x4 sticker | 17.1px | 37.6px |
+| 4x4 sticker, same phone on its side | 17.1px | 36.2px |
+| size buttons | 58x39 | 58x44 |
+| colour swatches | 40x44 | 44x44 |
+| speed slider | 110x16 | 110x44 |
+| notation summary | 329x20 | 329x44 |
+| solve view, landscape 812x375 | 1739px of scrolling, transport at y=951 | 786px, transport at y=315 |
+| scanner, landscape | card 553px tall in a 375px window, Snap at y=423 | card 320px, Snap at y=95 |
+
+The map no longer scrolls sideways on a phone, because on a phone it is no
+longer a cross: below 640px, and in landscape where the column is just as
+narrow, the six faces lay out two per row in the order the cross reads. The
+cross needs four face-columns side by side, which on a 4x4 is sixteen stickers
+across. There were `env(safe-area-inset-*)` in neither the CSS nor the HTML
+before this; there are now, and `index.html` asks for `viewport-fit=cover`,
+without which iOS reports them all as zero.
+
 ## Commands
 
 ```bash
 npm test                  # full suite
+npm run test:mobile       # phone layout, six emulated profiles (needs Playwright)
+npm run test:camera       # the scanner end to end, on a fake camera (needs Playwright)
 node tools/serve.js       # local server on :8123, what Tailscale fronts
 node tools/diagnose.js    # replay scan frames the detector failed on
 ```

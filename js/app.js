@@ -119,11 +119,20 @@
   function buildNet() {
     var net = $('net');
     net.innerHTML = '';
+    // How wide a face is, for the stylesheet to lay out. Custom properties
+    // inherit, so setting it once here reaches every .face below.
+    net.style.setProperty('--cube-size', size);
     NET_SLOTS.forEach(function (slot) {
       var holder = document.createElement('div');
       holder.className = 'face-slot';
-      holder.style.gridColumn = slot.col;
-      holder.style.gridRow = slot.row;
+      /*
+       * Custom properties rather than grid-column/grid-row directly: an inline
+       * style beats a stylesheet, and a phone in portrait drops the cross for
+       * two faces per row. Handing the numbers over as properties lets the
+       * media query say `grid-column: auto` and be listened to.
+       */
+      holder.style.setProperty('--col', slot.col);
+      holder.style.setProperty('--row', slot.row);
 
       var label = document.createElement('span');
       label.className = 'face-label';
@@ -132,7 +141,6 @@
 
       var face = document.createElement('div');
       face.className = 'face';
-      face.style.gridTemplateColumns = 'repeat(' + size + ', 1fr)';
       for (var i = 0; i < perFace(); i++) {
         var idx = slot.face * perFace() + i;
         var cell = document.createElement('button');
