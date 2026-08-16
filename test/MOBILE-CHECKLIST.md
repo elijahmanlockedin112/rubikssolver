@@ -52,12 +52,53 @@ that refused the camera.
 - [ ] Six faces in any order, each held any way up, ends on the sticker map with
       the colours in the right places.
 - [ ] The thumbnails along the bottom fill in one per snap.
-- [ ] **Redo last** goes back exactly one face.
+- [ ] **Redo last** goes back exactly one face, and the outline goes green again
+      rather than staying amber at the face you just threw away.
 - [ ] Do it again for a 2x2 and a 4x4. The 4x4 is the size where the map is
       tightest and the detector has the most to find.
 - [ ] Red and orange come out as red and orange in ordinary indoor light, and
       again near a window. Anything the reader was unsure of pulses blue — check
       that the pulse is visible on a phone screen, at arm's length.
+
+## 2a. Auto-capture — the numbers behind it came from a renderer
+
+`npm run test:camera` drives all of this on a fake camera and it passes, but a
+fake camera has no lens blur, no rolling shutter, no auto-exposure hunting and
+no JPEG. Every threshold in `js/autosnap.js` was measured against rendered
+frames, which are sharper and steadier than anything a phone produces. **This
+section is where those numbers meet reality, and it is the most likely place
+for this feature to be wrong.**
+
+The two failures pull opposite ways, so watch for both:
+
+- [ ] **Does it fire at all?** Hold a face up steadily. It should take the photo
+      after roughly two-thirds of a second. If it sits there green and never
+      fires, a real camera is noisier than the renderer and the bars are too
+      tight — most likely `angleTol` (0.06 rad) or `colorTol`.
+- [ ] **Does it fire too soon?** Move the cube towards the camera, or turn it
+      slowly past, and see whether it grabs a shot mid-movement. A photo taken
+      of a face at a steep angle is the one that quietly poisons the read.
+- [ ] The outline fills in green like a fuse as it makes up its mind, and you
+      can see it filling — not just on and off.
+- [ ] **The blink.** The picture flashes white when a photo is taken. On the
+      sixth it does not, because the scanner closes in the same instant; check
+      that still feels like an ending rather than a glitch.
+- [ ] **It does not take two of one face.** Hold one face up and just leave it
+      there for twenty seconds. Exactly one photo. The outline should go amber
+      and it should say "Turn the cube to a face you have not done yet."
+      Do this on a **2x2 and a 4x4** especially — a 3x3 is protected by its
+      centre sticker regardless, so it proves nothing.
+- [ ] Turn from one face to another **without letting either leave the frame**,
+      which is the hard case: only the colours say the face changed. On a 2x2,
+      about 1 pair of faces in 500 reads too alike to notice, and then you tap
+      Snap — check that Snap still works while the outline is amber.
+- [ ] Scan a **solved or near-solved cube**, where several faces are one flat
+      colour. This is the worst case for telling faces apart and the renderer
+      only ever made scrambled ones.
+- [ ] Does it fire while you are still moving the cube into position, before you
+      have settled? Does the two-thirds of a second feel like waiting?
+- [ ] Six faces end to end with no taps at all. Time it. If it is slower than
+      pressing the button six times, the feature is not earning its place.
 
 ## 3. Orientation — the thing this app is actually about
 
@@ -110,7 +151,9 @@ None of this exists under emulation.
 - [ ] Add to Home Screen, open it from there, and check the header and footer
       again — standalone mode has different insets from a Safari tab.
 - [ ] Reduce Motion on (Settings → Accessibility → Motion): the "unsure sticker"
-      pulse stops. Everything else still works.
+      pulse stops, and the shutter blink drops to a dim slow pulse instead of a
+      white flash. The blink must still be *visible* — it is the only feedback
+      that a photo was taken — just not a strobe.
 - [ ] Dark mode / light mode: this app is dark either way by design. Confirm it
       does not come out half-inverted.
 
@@ -127,13 +170,29 @@ None of this exists under emulation.
 
 ---
 
-## What the automated suite covers, so you can skip it here
+## What the automated suites cover, so you can skip it here
 
-Do not spend phone time on these — `npm run test:mobile` measures them on iPhone
-SE (375), iPhone 15 (393) and Pixel 7 (412), portrait and landscape:
+Do not spend phone time on these.
+
+`npm run test:mobile` — iPhone SE (375), iPhone 15 (393) and Pixel 7 (412),
+portrait and landscape:
 
 - horizontal overflow at every cube size, on both views and with the scanner open
 - every button, input, summary and label at 44px or more
 - sticker size at 2x2, 3x3 and 4x4
-- the scanner card and its three buttons fully on screen, with no modal scrolling
+- the scanner card, camera preview and three buttons fully on screen, with no
+  modal scrolling, and the tip not covered by the preview
 - the header and the scanner clearing simulated notch and home-indicator insets
+
+`npm run test:camera` — the scanner on a fake camera, in Chromium:
+
+- six faces auto-captured on a 2x2, a 3x3 and a 4x4, with nothing touched
+- one face held up for twenty-two seconds giving exactly one photo, on both
+  sizes that have no centre sticker
+- the map filled in and the cube assembling
+- one blink per photo, and the live loop actually stopping when it closes
+
+`npm test` (`test/autosnap.test.js`) — the firing decision itself, over hundreds
+of rendered looks run through the real detector: fires when a face is held,
+never at an empty frame, never at a cube being turned, never twice on one face,
+and rearms when the cube is turned to a new one.

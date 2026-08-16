@@ -375,6 +375,39 @@ h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: 
   width: 100%; height: 100%;
   pointer-events: none;
 }
+
+/*
+ * The shutter blink.
+ *
+ * A photo taken by the scanner rather than by a thumb has no other moment
+ * attached to it — no button travel, no shutter sound a browser is allowed to
+ * make — so without this a face is simply captured and the only evidence is a
+ * dot appearing in a row of six somewhere below.
+ */
+.scan-flash {
+  position: absolute; inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+.scan-flash.is-firing { animation: scan-flash 260ms ease-out; }
+@keyframes scan-flash {
+  0% { opacity: 0.82; }
+  100% { opacity: 0; }
+}
+/*
+ * Reduced motion covers photosensitivity as well as vestibular trouble, and a
+ * full white flash is the one thing on this page that could matter for it. The
+ * blink stays — it is the feedback, not decoration — but at a fifth of the
+ * brightness and slower, so it reads as a soft pulse rather than a strobe.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .scan-flash.is-firing { animation: scan-flash-soft 420ms ease-out; }
+  @keyframes scan-flash-soft {
+    0% { opacity: 0.18; }
+    100% { opacity: 0; }
+  }
+}
 .scan-buttons { justify-content: center; }
 .btn-snap { min-width: 190px; font-size: 1rem; padding: 13px 20px; }
 .scan-thumbs { display: flex; gap: 8px; justify-content: center; margin: 14px 0 4px; }

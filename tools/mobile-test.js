@@ -1,10 +1,13 @@
 /*
- * node tools/mobile-test.js   —   what `npm run test:mobile` runs.
+ * node tools/mobile-test.js [playwright args]
  *
- * The mobile layout suite needs Playwright and about 300MB of browser, and the
- * fourteen-file Node suite needs neither. This exists so that the two never
+ * What `npm run test:mobile` and `npm run test:camera` both run — the second
+ * one passes --config=playwright.camera.config.js through.
+ *
+ * The browser suites need Playwright and about 300MB of browser, and the
+ * fifteen-file Node suite needs neither. This exists so that the two never
  * become one thing: `npm test` must keep working on a machine that has never
- * heard of Playwright, and asking for the browser suite on such a machine
+ * heard of Playwright, and asking for a browser suite on such a machine
  * should say so in a sentence rather than throw a stack trace.
  *
  * Exit codes: 0 when the suite passes, 0 when Playwright is simply not
@@ -18,7 +21,7 @@ var root = path.join(__dirname, '..');
 
 function missing(what) {
   console.log('');
-  console.log('  The mobile layout suite is not set up on this machine.');
+  console.log('  The browser suites are not set up on this machine.');
   console.log('  ' + what);
   console.log('');
   console.log('  To set it up (a devDependency and one browser download —');

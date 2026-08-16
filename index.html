@@ -165,6 +165,9 @@
       <div class="scan-stage">
         <video id="scan-video" playsinline muted autoplay></video>
         <canvas id="scan-overlay" class="scan-overlay" aria-hidden="true"></canvas>
+        <!-- the blink that says a photo was just taken; nothing else on screen
+             moves when the scanner takes one by itself -->
+        <div id="scan-flash" class="scan-flash" aria-hidden="true"></div>
       </div>
       <div class="scan-side">
         <div id="scan-thumbs" class="scan-thumbs"></div>
@@ -175,8 +178,10 @@
         </div>
         <p id="scan-message" class="message"></p>
         <p class="caption scan-caption">
-          A green outline means it has found the face. Angle, distance and which way
-          up all sort themselves out — it reads the cube on this device, instantly.
+          The outline fills in green as it makes up its mind, then the picture
+          blinks to say it has one. Amber means it is waiting for you to turn the
+          cube to a face you have not done. Angle, distance and which way up all
+          sort themselves out — it reads the cube on this device, instantly.
         </p>
       </div>
     </div>
@@ -212,6 +217,7 @@
 <script src="js/assemble.js"></script>
 <script src="js/assemble4.js"></script>
 <script src="js/repair.js"></script>
+<script src="js/autosnap.js"></script>
 <script src="js/scan.js"></script>
 <script src="js/app.js"></script>
 </body>
