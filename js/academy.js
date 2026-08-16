@@ -107,6 +107,33 @@
    * about them anywhere. An app-local name would be a dead end.
    */
   var ALGS = {
+    /*
+     * The two middle-layer inserts, which are the first real algorithms anyone
+     * learns and were being shown as anonymous free moves until this was
+     * written down. They are `relative`: the solver turns them to face
+     * whichever slot is being filled, so the notation on screen has to come
+     * from the moves actually being made rather than from the string here.
+     * The string is the shape they are taught in, and is what the reason below
+     * refers to.
+     */
+    rightinsert: {
+      name: 'Right-hand insert',
+      nick: 'the right insert',
+      notation: "U R U' R' U' F' U F",
+      relative: true,
+      why: 'Sends the edge from the top layer into the slot on the RIGHT of the face you are ' +
+        'looking at. The first half lifts a corner out of the way; the second half puts it back ' +
+        'with the edge underneath it.'
+    },
+    leftinsert: {
+      name: 'Left-hand insert',
+      nick: 'the left insert',
+      notation: "U' L' U L U F U' F'",
+      relative: true,
+      why: 'The same thing mirrored, for the slot on the LEFT. Every move is the opposite hand ' +
+        'and the opposite direction — learn one and you have both.'
+    },
+
     fruruf: {
       // named for what it does, because its usual name *is* its notation and
       // the strip is already showing that a line below
@@ -185,16 +212,54 @@
     var length = info.notation.split(/\s+/).length;
     var runLength = end - start + 1;
     var offset = index - start;
-    if (runLength % length !== 0) return { alg: info, at: -1, round: 0, rounds: 0 };
-    return {
-      alg: info,
-      at: offset % length,
-      round: Math.floor(offset / length) + 1,
-      rounds: runLength / length
-    };
+    if (runLength % length !== 0) return { alg: info, tokens: [], at: -1, round: 0, rounds: 0 };
+
+    var at = offset % length;
+    var round = Math.floor(offset / length);
+    /*
+     * What to print. A fixed algorithm prints the notation it is known by; a
+     * relative one has been turned to face the slot being filled, so its own
+     * moves are the only honest thing to show — "U R U' R' U' F' U F" above a
+     * cube doing U L U' L' U' B' U B would be teaching the wrong turns while
+     * naming the right idea.
+     */
+    var tokens;
+    if (info.relative) {
+      tokens = [];
+      for (var k = 0; k < length; k++) tokens.push(steps[start + round * length + k].move);
+    } else {
+      tokens = info.notation.split(/\s+/);
+    }
+
+    return { alg: info, tokens: tokens, at: at, round: round + 1, rounds: runLength / length };
   }
 
-  var api = { STAGES: STAGES, ALGS: ALGS, stage: stage, alg: alg, placeInAlg: placeInAlg };
+  /*
+   * Naming the piece being placed.
+   *
+   * The first three stages put in four pieces each, one at a time, and the
+   * difference between "twenty-five moves" and "four pieces, here is the
+   * second one" is most of whether those stages are followable. A piece is
+   * named the way a person names it: by its colours, which are the colours of
+   * the centres of the faces its home slot touches.
+   *
+   * `target` is the face letters of that slot, from solver.js — 'DF' is the
+   * bottom-front edge, 'DFR' the corner between them. `colourOf` turns one
+   * face letter into a colour name.
+   */
+  function pieceLabel(target, colourOf) {
+    if (!target) return null;
+    var names = target.split('').map(colourOf).filter(Boolean);
+    if (names.length < 2) return null;
+    var kind = target.length === 3 ? 'corner' : 'edge';
+    var last = names.pop();
+    return 'the ' + names.join(', ') + ' and ' + last + ' ' + kind;
+  }
+
+  var api = {
+    STAGES: STAGES, ALGS: ALGS,
+    stage: stage, alg: alg, placeInAlg: placeInAlg, pieceLabel: pieceLabel
+  };
   root.Academy = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

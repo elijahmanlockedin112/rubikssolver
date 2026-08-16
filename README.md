@@ -45,15 +45,23 @@ actually have, and tells you what it is doing:
   top cross, top face, place the corners, last edges. A stage your cube arrives
   with already done is shown as done rather than quietly dropped, because the
   method has seven stages whether or not this particular cube needs them all.
-- **A lesson before each stage**: what you are trying to end up with, and —
-  the part every tutorial skips fastest — *what to look for on your own cube*
-  to spot the case you are in. Recognition is the thing that does not come from
-  following arrows.
-- **The algorithms by name**: Sune, Anti-Sune, the T-perm, the U-perm, the
-  corner three-cycle. Written out in notation with the turn you are on picked
-  out, and repeated for as many rounds as your cube needs. They are named
-  because they are named everywhere else — someone who learns "Sune" here can
-  ask about it anywhere.
+- **A lesson before each stage**: how many pieces and how many moves, what you
+  are trying to end up with, and — the part every tutorial skips fastest —
+  *what to look for on your own cube* to spot the case you are in. Recognition
+  is the thing that does not come from following arrows. Tap the stage line
+  any time to read it again without losing your place.
+- **One piece at a time** through the first three stages. They place four
+  pieces each, and the app says which: *Piece 2 of 4 — the white and red edge*.
+  Twenty-five moves in a row is a wall; four pieces is a list you can get to
+  the end of.
+- **The algorithms by name**: the two middle-layer inserts, Sune, Anti-Sune,
+  the T-perm, the U-perm, the corner three-cycle. Written out in notation with
+  the turn you are on picked out, repeated for as many rounds as your cube
+  needs, and with a line saying what the algorithm is actually doing as it
+  starts. They are named because they are named everywhere else — someone who
+  learns "Sune" here can ask about it anywhere. The two inserts are turned to
+  face whichever slot is being filled, so the notation shown is the turns you
+  are actually making rather than the textbook orientation of them.
 - You can jump between stages, switch to the short solution on the same cube
   without rescanning, and switch back.
 

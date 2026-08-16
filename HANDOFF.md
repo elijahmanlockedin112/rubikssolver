@@ -537,9 +537,41 @@ be worth noticing if it broke:
   two turns together if either is part of an algorithm. Costs a few moves; buys
   a solution that is the thing it claims to be. Average went 110 → 116.
 
+- **The first three stages are taught a piece at a time.** They place four
+  pieces each and the solver now says which — `target` is the face letters of
+  the piece's home slot, 'DF' for the bottom-front edge, 'DFR' for the corner
+  between them — so the app can say *Piece 2 of 4, the white and red edge*
+  instead of showing twenty-five undifferentiated moves. The colours come from
+  the cube's own centres, so an unusual scheme names itself correctly.
+- **The two middle-layer inserts are algorithms too**, and were being shown as
+  loose moves — the first real algorithm anybody learns, unnamed. They are
+  `relative: true` in academy.js: the solver turns them to face whichever slot
+  is being filled, so the notation printed comes from the moves themselves.
+  Printing the textbook "U R U' R' U' F' U F" over a cube doing
+  U L U' L' U' B' U B would name the right idea and teach the wrong turns.
+
 `test/academy.test.js` is the guard for the join between the two files: the
-stage ids have to match, everything that comes up has to have teaching, and the
-highlighted token has to be the move actually being made.
+stage ids have to match, everything that comes up has to have teaching, every
+move of the first three stages has to name its piece, and the highlighted token
+has to be the move actually being made.
+
+**Two bugs of the same shape, worth recognising the third time.** A tag added
+to a step has to survive every place a step is copied: `cancel()` in solver.js
+rebuilds merged steps, and `expandHalfTurns()` in app.js rebuilds all of them
+when it splits half turns. Both dropped `target` on the floor, and the symptom
+in each case was a stage that looked like it had simply never been tagged.
+
+**And the one that mattered most.** Academy shipped drawing the cube in the
+wrong colours. The 2x2 and 4x4 solvers work on the colours, so their states are
+the cube as it will look; the beginner solver works in solver space, where a
+facelet holds a face *number*. Handing those to the renderer recolours every
+sticker on the cube and still looks like a perfectly plausible scramble — what
+gave it away was Academy describing a piece as "the blue and green edge" on a
+cube whose bottom is yellow. `expandHalfTurns` now checks a solver's states
+against the cube it was handed and works them out from the moves if they
+disagree, which is what the fast solver has always done. The mobile suite
+samples the front centre pixel against the stored cube, because a picture that
+is wrong in a consistent way is not one anybody notices.
 
 ### The audit, and what it found
 

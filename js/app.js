@@ -83,6 +83,15 @@
     academy: 'Seven stages, taught on your own scramble. Longer, and you keep it.'
   };
   var introDone = {};     // stages whose lesson card has been read
+  /*
+   * The lesson, reopened part way through a stage.
+   *
+   * The card appeared once on the way in and then there was no way back to it
+   * short of jumping to the start of the stage, which loses your place. "What
+   * am I doing again?" is the most ordinary thing to want half way through
+   * twenty-five moves.
+   */
+  var lessonOpen = false;
   var wakeLock = null;
 
   function solvedColorState() {
@@ -567,6 +576,12 @@
     }, 30);
   }
 
+  function sameColours(a, b) {
+    if (!a || !b || a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
   /** out[i] = src[perm[i]], for a cube of any size. */
   function permuteInto(src, perm) {
     var out = new Int8Array(src.length);
@@ -590,6 +605,25 @@
   function expandHalfTurns(solution) {
     var perms = CubeN.of(size).MOVE_PERMS;
     var given = solution.states || null;
+
+    /*
+     * A solver that brings its own states has to agree with the cube it was
+     * handed, and one of them does not.
+     *
+     * The 2x2 and 4x4 solvers work on the colours directly, so their states
+     * are the cube as it will look. The beginner solver works in solver space,
+     * where a facelet holds a face number rather than a palette colour — hand
+     * those to the renderer and every sticker comes out as whatever colour
+     * that face number happens to index, which recolours the entire cube and
+     * still looks like a plausible scramble. Academy mode shipped like that
+     * for exactly as long as it took to read a piece described as "the blue
+     * and green edge" on a cube whose bottom is yellow.
+     *
+     * So the states are checked against the cube rather than trusted, and
+     * worked out from the moves if they disagree — which is what the fast
+     * solver, which brings no states at all, has always done.
+     */
+    if (given && !sameColours(given[0], colorState)) given = null;
     // the beginner solver hands back annotated steps; the fast one, bare moves
     var src = solution.steps || solution.moves.map(function (m) { return { move: m }; });
     var out = { moves: [], steps: [], states: [], groups: [] };
@@ -619,6 +653,11 @@
           move: part,
           half: isHalf ? k + 1 : 0,
           stage: step.stage || null,
+          // which piece this is for, carried through the split with everything
+          // else — dropping it here looked exactly like the solver never
+          // having tagged it, which is a hard thing to tell apart from a
+          // stage that genuinely has no pieces
+          target: step.target || null,
           place: place
         });
         out.states.push(next);
@@ -645,6 +684,7 @@
     $('repair-note').hidden = !note;
     index = 0;
     introDone = {};
+    lessonOpen = false;
     endCelebration();
     buildStageStrip();
     showView('solve');
@@ -812,6 +852,7 @@
   function jumpToStage(g) {
     if (busy || !plan) return;
     endCelebration();
+    lessonOpen = false;
     index = g.start;
     delete introDone[g.id];   // arriving at a stage is arriving at its lesson
     applyIndex();
@@ -827,20 +868,29 @@
    */
   function atStageIntro() {
     if (!teaching() || index >= plan.steps.length) return false;
+    if (lessonOpen) return true;
     var here = currentStage();
     return !!here && !!here.group && index === here.group.start && !introDone[here.id];
   }
 
   function showStageIntro(here) {
     var lesson = Academy.stage(here.id) || {};
+    var pieces = pieceRun(here.group);
     $('stage-line').hidden = false;
     $('stage-line').textContent = 'Stage ' + here.number + ' of ' + Academy.STAGES.length;
     $('move-title').textContent = lesson.title || here.group.title;
     $('move-detail').textContent = lesson.goal || here.group.blurb || '';
     $('academy-note').hidden = false;
-    $('academy-note').textContent = lesson.look || '';
+    /*
+     * How much of it there is, before it starts. Four pieces reads as a list
+     * you can get to the end of; twenty-five moves reads as a wall — and they
+     * are the same stage.
+     */
+    $('academy-note').textContent = (pieces.length > 1
+      ? pieces.length + ' pieces, ' + here.group.count + ' moves. '
+      : here.group.count + ' moves. ') + (lesson.look || '');
     $('alg-strip').hidden = true;
-    $('btn-next').textContent = 'Start this stage ›';
+    $('btn-next').textContent = lessonOpen ? 'Back to the moves ›' : 'Start this stage ›';
     solveFront.showArrowFor = null;
   }
 
@@ -848,7 +898,7 @@
   function showAlgStrip(step) {
     var strip = $('alg-strip');
     var place = step.place;
-    if (!place || !place.alg) { strip.hidden = true; return; }
+    if (!place || !place.alg || !place.tokens.length) { strip.hidden = true; return; }
     strip.hidden = false;
     strip.innerHTML = '';
 
@@ -859,12 +909,41 @@
       : place.alg.name;
     strip.appendChild(name);
 
-    place.alg.notation.split(/\s+/).forEach(function (token, i) {
+    place.tokens.forEach(function (token, i) {
       var el = document.createElement('span');
       el.className = 'alg-move' + (i === place.at ? ' is-now' : '');
       el.textContent = token;
       strip.appendChild(el);
     });
+
+  }
+
+  /**
+   * The pieces a stage places, in the order it places them.
+   *
+   * The first three stages do four pieces each, one at a time, and the solver
+   * says which — so a run of twenty-five moves becomes four things with a
+   * name, a count and an end. Worked out from the steps rather than stored,
+   * because the number of pieces a stage needs depends on what the scramble
+   * left already done.
+   */
+  function pieceRun(group) {
+    var order = [], seen = {};
+    for (var i = group.start; i < group.start + group.count; i++) {
+      var t = plan.steps[i].target;
+      if (t && !seen[t]) { seen[t] = true; order.push(t); }
+    }
+    return order;
+  }
+
+  function pieceLine(here, step) {
+    if (!step.target) return null;
+    var order = pieceRun(here.group);
+    var at = order.indexOf(step.target) + 1;
+    var name = Academy.pieceLabel(step.target, faceColorName);
+    if (!name) return null;
+    return (order.length > 1 ? 'Piece ' + at + ' of ' + order.length + ' · ' : '') +
+      name[0].toUpperCase() + name.slice(1);
   }
 
   // ---- player ------------------------------------------------------------
@@ -885,6 +964,7 @@
     $('academy-note').hidden = true;
     $('alg-strip').hidden = true;
     $('btn-next').textContent = 'Next ›';
+    $('stage-line').classList.toggle('is-open', lessonOpen);
 
     if (atEnd) {
       $('move-title').textContent = 'Solved!';
@@ -903,14 +983,32 @@
       if (teaching() && here) {
         var lesson = Academy.stage(here.id);
         $('stage-line').hidden = false;
+        // where you are inside the stage as well as inside the solve: the bar
+        // at the top is over a hundred and ten moves, which is nobody's idea
+        // of encouraging
         $('stage-line').textContent = 'Stage ' + here.number + ' of ' + Academy.STAGES.length + ' · ' +
-          ((lesson && lesson.title) || here.title);
-        if (step.place && step.place.alg) {
-          showAlgStrip(step);
-        } else if (lesson) {
+          ((lesson && lesson.title) || here.title) +
+          ' · ' + (index - here.group.start + 1) + '/' + here.group.count;
+        /*
+         * One line under the move, for whatever matters most right now.
+         *
+         * Three things want it and they are in priority order. As an algorithm
+         * starts, what it is for — that reason was written down and shown at
+         * the bottom of the card, where a 32vh cap quietly cut it off, which
+         * is the same as not writing it. While pieces are going in, which
+         * piece. Otherwise, what to look for. They never all apply at once,
+         * and giving them a line each would cost the cube the height instead.
+         */
+        var place = step.place;
+        var why = (place && place.alg && place.at === 0) ? place.alg.why : null;
+        var piece = pieceLine(here, step);
+        var line = why || piece || (lesson && !(place && place.alg) ? lesson.look : null);
+        if (line) {
           $('academy-note').hidden = false;
-          $('academy-note').textContent = lesson.look;
+          $('academy-note').textContent = line;
+          $('academy-note').classList.toggle('is-why', !!why);
         }
+        if (place && place.alg) showAlgStrip(step);
       }
     }
 
@@ -926,6 +1024,14 @@
     $('btn-restart').classList.toggle('btn-primary', atEnd);
     $('btn-restart').classList.toggle('btn-ghost', !atEnd);
     $('btn-mode').textContent = teaching() ? '⚡ Just solve it' : '🎓 Teach me this one';
+    /*
+     * A taught card carries more than a followed one — the stage, the piece or
+     * the reason, and the notation — so it is allowed more of the screen, and
+     * the cube gives it up. Without this the reason an algorithm works was
+     * cut off at the bottom of the card, which is the same as never having
+     * written it.
+     */
+    document.body.classList.toggle('teaching', teaching());
     updateStageStrip();
   }
 
@@ -934,6 +1040,7 @@
     // the lesson card is a step of its own: read it, then start the stage
     if (atStageIntro()) {
       introDone[currentStage().id] = true;
+      lessonOpen = false;
       applyIndex();
       return;
     }
@@ -952,7 +1059,7 @@
     if (busy || !plan) return;
     endCelebration();
     // step back out of a lesson card into the last move of the stage before it
-    if (atStageIntro() && index > 0) { introDone[currentStage().id] = true; }
+    if (atStageIntro() && index > 0) { introDone[currentStage().id] = true; lessonOpen = false; }
     if (index === 0) { applyIndex(); return; }
     index--;
     applyIndex();
@@ -1145,6 +1252,13 @@
     $('btn-next').addEventListener('click', stepForward);
     $('btn-prev').addEventListener('click', stepBack);
     $('btn-replay').addEventListener('click', replayCurrent);
+
+    // the stage line doubles as the way back into that stage's lesson
+    $('stage-line').addEventListener('click', function () {
+      if (!teaching() || busy) return;
+      lessonOpen = !lessonOpen;
+      applyIndex();
+    });
 
     document.querySelectorAll('.mode-option').forEach(function (button) {
       button.addEventListener('click', function () { setMode(button.dataset.mode); });

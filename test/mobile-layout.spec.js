@@ -362,8 +362,55 @@ test('academy teaches seven stages on your own scramble', async function ({ page
   var goal = await page.locator('#move-detail').textContent();
   expect(goal.length, 'the stage should say what it is for').toBeGreaterThan(30);
 
+  /*
+   * The cube on screen is drawn in the cube's own colours.
+   *
+   * This is not a paranoid assertion. The beginner solver works in solver
+   * space — a facelet holds a face number, not a palette colour — and handing
+   * those states straight to the renderer recolours every sticker on the cube
+   * while still looking like a perfectly plausible scramble. It shipped that
+   * way, and what gave it away was not the picture: it was Academy describing
+   * a piece as "the blue and green edge" on a cube whose bottom is yellow.
+   *
+   * So: the middle of the front face, against the front centre of the cube in
+   * localStorage. A centre sticker never moves on a 3x3, so this holds at any
+   * point in any solution.
+   */
+  // wait for the first painted frame — an unpainted canvas is transparent
+  // black, which is not a colour the cube has and would fail for the wrong
+  // reason
+  await page.waitForFunction(function () {
+    var c = document.getElementById('solve-front-canvas');
+    if (!c || !c.width) return false;
+    var d = c.getContext('2d').getImageData(Math.round(c.width * 0.5), Math.round(c.height * 0.65), 1, 1).data;
+    return d[3] > 200 && (d[0] + d[1] + d[2]) > 60;
+  }, null, { timeout: 10000 });
+
+  var colours = await page.evaluate(function () {
+    var c = document.getElementById('solve-front-canvas');
+    var d = c.getContext('2d').getImageData(Math.round(c.width * 0.5), Math.round(c.height * 0.65), 1, 1).data;
+    var hex = '#' + [d[0], d[1], d[2]].map(function (v) { return v.toString(16).padStart(2, '0'); }).join('');
+    var saved = JSON.parse(localStorage.getItem('rubiks-cube-coach.state'));
+    var PALETTE = ['#f4f5f7', '#ffd23f', '#00a651', '#0a58c2', '#d8283c', '#ff8c1a'];
+    return { drawn: hex, expected: PALETTE[saved[22]] };   // 22 is the front centre
+  });
+  expect(colours.drawn, 'the front centre is drawn ' + colours.drawn +
+    ', but the cube says ' + colours.expected).toBe(colours.expected);
+
   await page.locator('#btn-next').click();
   await expect(page.locator('#move-counter')).toHaveText(/Move 1 of/);
+
+  // the first three stages place four pieces each, and say which
+  await expect(page.locator('#academy-note')).toContainText(/Piece \d of \d/);
+  await expect(page.locator('#stage-line')).toContainText(/·\s*\d+\/\d+/);
+
+  // and the lesson can be reopened without losing your place
+  var before = await page.locator('#move-counter').textContent();
+  await page.locator('#stage-line').click();
+  await expect(page.locator('#btn-next')).toHaveText(/Back to the moves/);
+  await page.locator('#btn-next').click();
+  expect(await page.locator('#move-counter').textContent(), 'reopening the lesson lost your place')
+    .toBe(before);
 
   var o = await tallOverflow(page);
   expect(o.px, 'academy is ' + o.px + 'px too tall: ' + JSON.stringify(o.blame)).toBeLessThanOrEqual(0);

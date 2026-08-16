@@ -342,6 +342,7 @@ body.solving .topbar { display: none; }
   max-height: 32vh;
   overflow-y: auto;
 }
+body.teaching .instruction-card { max-height: 42vh; }
 .move-title { font-size: 1.25rem; margin: 0 0 4px; line-height: 1.2; }
 .move-detail { margin: 0; font-size: 0.95rem; color: #cfd6e4; }
 
@@ -368,11 +369,35 @@ body.solving .topbar { display: none; }
 .stage-dot.is-done { background: rgba(55, 211, 154, 0.18); border-color: rgba(55,211,154,0.4); color: #bff3de; }
 .stage-dot.is-here { background: rgba(76,141,255,0.2); border-color: var(--accent); color: var(--text); }
 
+/*
+ * Also a button: tapping it reopens the stage's lesson without losing your
+ * place, and tapping it again puts it away.
+ *
+ * Full width and 44px tall because it is a real tap target — a 15px strip of
+ * uppercase text is a label, and this stopped being one. The card gives back
+ * most of the height by losing its own top padding while this is showing.
+ */
 .stage-line {
-  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  margin: -10px 0 0;
+  padding: 0;
+  text-align: left;
+  font: inherit;
   font-size: 0.68rem; letter-spacing: 0.09em; text-transform: uppercase;
   color: var(--accent-2);
+  background: none;
+  border: 0;
+  cursor: pointer;
 }
+.stage-line::after {
+  content: " ⓘ";
+  opacity: 0.7;
+  letter-spacing: 0;
+}
+.stage-line.is-open::after { content: " ✕"; }
 .stage-line[hidden] { display: none; }
 .academy-note {
   margin: 8px 0 0;
@@ -382,6 +407,9 @@ body.solving .topbar { display: none; }
   padding-top: 8px;
 }
 .academy-note[hidden] { display: none; }
+/* the reason an algorithm works, on the turn it starts — worth more emphasis
+   than the running commentary it shares this line with */
+.academy-note.is-why { color: #cfd6e4; }
 
 /*
  * The algorithm, written the way every other tutorial writes it, with the turn
@@ -604,7 +632,8 @@ body.solving .topbar { display: none; }
   .view-solve .stage-strip { grid-column: 1 / -1; grid-row: 2; }
   .view-solve .repair-note { grid-column: 1 / -1; grid-row: 3; }
   .view-solve .stage-canvases { grid-column: 1; grid-row: 4 / span 3; }
-  .view-solve .instruction-card { grid-column: 2; grid-row: 4; align-self: center; max-height: none; }
+  .view-solve .instruction-card,
+  body.teaching .view-solve .instruction-card { grid-column: 2; grid-row: 4; align-self: center; max-height: none; }
   .view-solve .transport { grid-column: 2; grid-row: 5; align-self: end; }
   .view-solve .solve-quiet { grid-column: 2; grid-row: 6; }
 }
@@ -650,7 +679,11 @@ body.solving .topbar { display: none; }
   .view-solve .stage-strip { grid-column: 1 / -1; grid-row: 2; }
   .view-solve .repair-note { grid-column: 1 / -1; grid-row: 3; max-height: 12vh; }
   .view-solve .stage-canvases { grid-column: 1; grid-row: 4 / span 3; }
-  .view-solve .instruction-card { grid-column: 2; grid-row: 4; max-height: 100%; align-self: start; }
+  /* the taught card is allowed 42vh in portrait, which on a phone lying on
+     its side is less than the column it already has — say so, or the extra
+     room turns into a cap */
+  .view-solve .instruction-card,
+  body.teaching .view-solve .instruction-card { grid-column: 2; grid-row: 4; max-height: 100%; align-self: start; }
   .view-solve .transport { grid-column: 2; grid-row: 5; }
   .view-solve .solve-quiet { grid-column: 2; grid-row: 6; }
   .view-home .mode-note, .view-home .flat-note { display: none; }

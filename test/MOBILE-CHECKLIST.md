@@ -197,6 +197,17 @@ is not checkable and is the whole point.
 - [ ] **The algorithm strip.** When it says Sune and highlights the third turn,
       is the cube on screen doing that turn? Follow one algorithm through with
       your eyes on the strip rather than the cube.
+- [ ] **The middle layer**, which is where the first real algorithm turns up.
+      The strip names the right- or left-hand insert and prints the turns
+      *rotated to the slot being filled* rather than the textbook F/R version.
+      Does that help, or would the textbook orientation plus "hold the slot in
+      front of you" be easier to carry away? Genuinely unsure; worth an opinion
+      from someone learning.
+- [ ] **Piece 2 of 4 — the white and red edge.** Can you find that piece on
+      your cube from that description alone, before watching the moves? That is
+      the whole test of the first three stages.
+- [ ] **Tap the stage line** part way through a stage: the lesson comes back,
+      Next says "back to the moves", and your place is where you left it.
 - [ ] **Jump between stages** with the numbered dots. Are they big enough to
       hit? Seven across a 375px screen is 44px each at best, and they are the
       one control the automated suite exempts.

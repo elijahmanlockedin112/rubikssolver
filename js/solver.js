@@ -179,8 +179,17 @@
 
   function solve(startState) {
     var s = Uint8Array.from(startState);
-    var steps = [];      // { move, stage, alg }
+    var steps = [];      // { move, stage, alg, target }
     var stage = 'cross';
+    /*
+     * Which piece the next moves are for, as the letters of the faces its home
+     * slot touches — 'DF' is the bottom-front edge, 'DFR' the corner between
+     * them. The first three stages place four pieces each, one at a time, and
+     * without this the learner sees twenty-five moves in a row with no way to
+     * tell where one piece ends and the next begins. Null once the last layer
+     * starts, where the moves are about the whole layer rather than a piece.
+     */
+    var target = null;
 
     // Takes either plain move strings or the { move, alg } pairs macroSearch
     // hands back, so the first-layer searches need to know nothing about tags.
@@ -189,7 +198,10 @@
         var m = moves[i];
         var name = typeof m === 'string' ? m : m.move;
         s = Cube.apply(s, name);
-        steps.push({ move: name, stage: stage, alg: typeof m === 'string' ? null : m.alg });
+        steps.push({
+          move: name, stage: stage, target: target,
+          alg: typeof m === 'string' ? null : m.alg
+        });
       }
     }
 
@@ -207,12 +219,13 @@
     }
 
     function solveCrossEdge(face, done) {
-      var target = Cube.edgeIndex(D, face);
-      if (edgePlaced(s, target)) return;
+      var home = Cube.edgeIndex(D, face);
+      if (edgePlaced(s, home)) return;
+      target = 'D' + LET[face];
 
       // Shortest route straight into the slot, if there is a short one.
       var direct = search(s, function (st) {
-        return edgePlaced(st, target) && crossIntact(st, done);
+        return edgePlaced(st, home) && crossIntact(st, done);
       }, 5);
       if (direct) { run(direct); return; }
 
@@ -234,7 +247,7 @@
         run(['U']);
       }
       run([LET[face] + '2']);
-      if (!edgePlaced(s, target)) throw new Error('Bottom cross edge ' + LET[face] + ' did not seat.');
+      if (!edgePlaced(s, home)) throw new Error('Bottom cross edge ' + LET[face] + ' did not seat.');
     }
 
     // --- 2. bottom corners ------------------------------------------------
@@ -262,6 +275,7 @@
     function solveBottomCorner(a, b, donePairs) {
       var home = Cube.cornerIndex(D, a, b);
       if (cornerPlaced(s, home)) return;
+      target = 'D' + LET[a] + LET[b];
 
       // If it is stuck in the bottom layer, lift it to the top first.
       var at = findCorner(s, D, a, b);
@@ -286,13 +300,24 @@
     stage = 'middle';
     var MIDDLE_SLOTS = [[F, R], [R, B], [B, L], [L, F]];
 
+    /*
+     * The two middle-layer inserts, tagged so they can be taught by name.
+     *
+     * These are the same eight moves every beginner tutorial gives, turned to
+     * face whichever slot is being filled — which is exactly why they are
+     * written relative to F and mapped, and why the notation shown has to come
+     * from the moves rather than from a fixed string.
+     */
+    function tag(moves, id) {
+      return moves.map(function (m) { return { move: m, alg: id }; });
+    }
     function rightInsert(f, r) {
       var map = {}; map.F = LET[f]; map.R = LET[r];
-      return mapAlg("U R U' R' U' F' U F", map);
+      return tag(mapAlg("U R U' R' U' F' U F", map), 'rightinsert');
     }
     function leftInsert(f, l) {
       var map = {}; map.F = LET[f]; map.L = LET[l];
-      return mapAlg("U' L' U L U F U' F'", map);
+      return tag(mapAlg("U' L' U L U F U' F'", map), 'leftinsert');
     }
     function middleDone() {
       for (var i = 0; i < MIDDLE_SLOTS.length; i++) {
@@ -313,6 +338,7 @@
           if (up === U || up === D || side === U || side === D) continue;
           if (side !== slot.side) continue;
           var pre = UTURNS[ui] ? [UTURNS[ui]] : [];
+          target = LET[slot.side] + LET[RIGHT_OF[slot.side]];
           if (up === RIGHT_OF[slot.side]) {
             run(pre.concat(rightInsert(slot.side, RIGHT_OF[slot.side])));
             inserted = true;
@@ -328,6 +354,7 @@
         for (var mi = 0; mi < MIDDLE_SLOTS.length; mi++) {
           var pr = MIDDLE_SLOTS[mi];
           if (!edgePlaced(s, Cube.edgeIndex(pr[0], pr[1]))) {
+            target = LET[pr[0]] + LET[pr[1]];
             run(rightInsert(pr[0], pr[1]));
             break;
           }
@@ -338,6 +365,7 @@
 
     // --- 4. top cross -----------------------------------------------------
     stage = 'topcross';
+    target = null;
     var FRUR = Cube.parse("F R U R' U' F'");
     function topCrossDone(st) {
       for (var i = 0; i < U_EDGE_SLOTS.length; i++) {
@@ -433,7 +461,10 @@
           var amt = amount(out[i].move) + amount(out[i + 1].move);
           var merged = moveName(out[i].move[0], amt);
           if (merged === null) out.splice(i, 2);
-          else out.splice(i, 2, { move: merged, stage: out[i].stage, alg: null });
+          // the merged turn belongs to the same stage and the same piece as the
+          // two it replaces; dropping the piece left holes in the teaching that
+          // looked exactly like the moves never having been tagged at all
+          else out.splice(i, 2, { move: merged, stage: out[i].stage, target: out[i].target, alg: null });
           changed = true;
           break;
         }
