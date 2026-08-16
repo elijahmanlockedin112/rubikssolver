@@ -18,12 +18,12 @@ accounts, no API keys, no network. Open `index.html` and it works, offline, fore
    browsers only hand over the camera on an https:// address. Add it to your
    home screen and it opens without browser chrome and works with no signal.
    Then pick what you want out of it: **⚡ Solve it** or **🎓 Teach me**.
-2. Pick your cube's size and press **Scan my cube**. Stand the cube on a table
-   and hold the phone over it. Two cubes appear: what the camera sees, and the
-   cube being built from it. Show it a face — it takes the photo itself — and
-   the second cube paints that face in, holds it long enough for you to check
-   it against the one in your hand, then **turns to show you which way to turn
-   yours**. Three rolls toward you, a quarter turn, and two more rolls: all six.
+2. Pick your cube's size and press **Scan my cube**, and hold the cube up to
+   the camera. Two cubes appear: what the camera sees, and the cube being built
+   from it. Show it a face — it takes the photo itself — and the second cube
+   paints that face in, holds it long enough for you to check it against the
+   one in your hand, then **turns to show you which way to turn yours**. Three
+   turns to the left, then two tips, and it has all six.
 3. That is the whole flow. The scan feeds straight into the solver and you land
    on the first move — there is nothing to confirm and no solution style to
    choose. Press **Next** for each turn (← → and space work too), or turn on
@@ -32,13 +32,9 @@ accounts, no API keys, no network. Open `index.html` and it works, offline, fore
 If the cube in your hand stops matching the one on screen, **Not solved? Start
 over** goes back to the camera.
 
-If you would rather type the colours in, *Type the colours in instead* walks a
-six-face route with a palette instead of a camera — one face at a time, with
-the same cube beside it saying which face you are on. It is a different route
-from the scanner’s, and deliberately: with a phone overhead the face being
-read is the top one, so the cube has to be rolled; with no phone in the way the
-face you are working on is the one toward you, so it is turned instead. A route
-of left-turns shows an overhead camera the same face three times running.
+If you would rather type the colours in, *Type the colours in instead* walks
+the same six-face route with a palette instead of a camera — one face at a
+time, with the same cube beside it saying which face you are on.
 
 ## Academy mode
 
@@ -92,11 +88,9 @@ other tutorial uses, on purpose: what you learn here should still make sense in
 somebody else's video.
 
 Keep the cube in the same orientation the whole way through. After a scan there
-is nothing to line up at all: the cube on screen has been turned so that the
-face you photographed last is **on top**, which is where it is sitting in front
-of you, because that is where the camera was. The solve view looks down at it
-from about 42 degrees for the same reason — the face you can identify is the
-one you need to see.
+is nothing to line up at all: the cube on screen has been turned so the face
+you photographed last is the one **facing you**, which is where it already is,
+because that is what the camera was looking at.
 
 The whole app is built for a phone held in one hand with a cube in the other:
 three screens, each exactly one window tall, none of which ever scrolls. The

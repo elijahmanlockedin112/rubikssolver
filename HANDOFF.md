@@ -1,43 +1,64 @@
 # Handoff — Rubik's Cube Coach
 
-State as of the 4x4 branch. Everything below is verified, not assumed.
+Everything below is verified, not assumed. Start here, then read the section
+for whatever you are touching.
 
 ## What this is
 
-`C:\Users\elija\Downloads\rubiks-cube-coach` — a browser app that takes a cube's
-colors (typed or scanned) and shows an animated 3D solution one turn at a time,
-with no notation to learn. Plain HTML/CSS/JS. **No build, no dependencies, no
-backend, no API keys, no network.** Node is used only to run tests and a local
-static server.
+`C:\Users\elija\Downloads\rubiks-cube-coach` — a browser app you point at a
+Rubik's cube. Scan it with the camera and it either hands you the shortest
+solution or teaches you the beginner method on your own scramble, one turn at a
+time, with no notation to learn. Plain HTML/CSS/JS. **No build, no
+dependencies, no backend, no API keys, and it works offline.** Node is used
+only to run tests and a local static server; Playwright is a devDependency for
+the two browser suites.
 
-## Deployment — two places, do not mix them up
+**It is a phone app that happens to run in a browser.** Three screens, each
+exactly one window tall, none of which ever scrolls — html and body are
+`overflow: hidden`, so anything that does not fit is clipped rather than
+scrolled. That is the single easiest thing to break here.
 
-| Branch | Serves | Where |
-| --- | --- | --- |
-| `main` | **stable 3x3 app, shared with a friend** | auto-deploys to GitHub Pages: https://elijahmanlockedin112.github.io/rubikssolver/ |
-| `4x4` | in-progress work, orange "in progress" badge in the header | `node tools/serve.js` (:8123), exposed by Tailscale Serve at https://elijahman.taileb0bc0.ts.net (tailnet only) |
+## Deployment
 
-Pushing to `main` publishes immediately, so 4x4 work stays on the branch until
-it is worth publishing. Repo: https://github.com/elijahmanlockedin112/rubikssolver
+| Branch | State |
+| --- | --- |
+| `main` | everything. Auto-deploys to GitHub Pages: https://elijahmanlockedin112.github.io/rubikssolver/ |
+| `mobile` | kept pointing at the same commit as `main`; no longer a separate line of work |
+| `4x4` | historical, merged long ago, ignore it |
+
+Pushing to `main` publishes immediately. Repo:
+https://github.com/elijahmanlockedin112/rubikssolver
 
 Licence is **all rights reserved** — public to read, not to reuse.
 
 This machine has no global git identity, so commits are made with
 `git -c user.name="Rubik's Cube Coach" -c user.email="noreply@example.com" commit`.
 
+## The shape of it, screen by screen
+
+- **Home** (`#view-setup`) — a size (2/3/4), the cube as last known, a
+  two-button mode picker (⚡ Solve it / 🎓 Teach me), and **Scan my cube**.
+  Deliberately almost empty; there is a test that counts what is on it.
+- **Scanner** (`#scanner`, a modal) — two cubes. The camera above, and below it
+  the cube being built from what it has read, which paints in each face, holds
+  it for you to check, then turns to show which way to turn yours.
+- **Map** (`#view-edit`) — typing colours in by hand, one face at a time, along
+  the same six-face route, with the same grey guidance cube.
+- **Solve** (`#view-solve`) — one cube, one move, Next. In Academy mode it also
+  carries the stage strip, the lesson cards and the algorithm notation.
+
 ## What works
 
-**3x3 — complete, on `main`.** Scan or type a cube, get a solution, follow it in
-3D. Two solvers: `kociemba.js` (two-phase, ~20 moves, ~250ms) and `solver.js`
-(layer-by-layer, ~110 moves in seven teachable stages).
+**3x3 — complete.** Two solvers, and they are two *modes* rather than two
+answers: `kociemba.js` (two-phase, ~20 moves, ~250ms) for ⚡, and `solver.js`
+(layer-by-layer, eight teachable stages, ~125 moves) for 🎓 Academy.
 
-**4x4 — complete.** Model, grid detection, colour reading, face identification,
-the 96-sticker map and the 3D view all work; scanning a 4x4 lands correctly on
-the map, and solving works — about 45 face turns via `tpr.js`.
+**4x4 — complete.** About 55 turns via `tpr.js`. Its solver is 98KB and is
+fetched on demand the first time a 4x4 is actually solved.
 
-**2x2 — complete.** Scan or type, and the solution is always the shortest one
-that exists (never more than 11 moves). Scanning works, though six faces of a
-2x2 sometimes fit together more than one way and it says so.
+**2x2 — complete.** Always the shortest solution that exists, never more than
+11 moves. Six faces of a 2x2 can occasionally fit together more than one way,
+and it says so rather than guessing.
 
 | File | Does |
 | --- | --- |
@@ -54,7 +75,28 @@ that exists (never more than 11 moves). Scanning works, though six faces of a
 | `js/repair.js` | fixes an obviously-wrong cube, refuses ambiguous ones |
 | `js/autosnap.js` | when a face has been recognised well enough to photograph it unasked |
 | `js/render.js` | software 3D on a 2D canvas, any size |
+| `js/guide.js` | the six-face route round the cube, and the permutation that keeps track of which face you are looking at |
+| `js/academy.js` | the teaching: what each stage is for, what to look for, the algorithms by name |
+| `js/celebrate.js` | confetti |
+| `js/voice.js` | "next", out loud — the only thing here that leaves the device |
 | `js/scan.js`, `js/app.js` | scanner and UI |
+| `sw.js` | offline. Network-first on purpose |
+
+## Running it
+
+```bash
+npm test                  # 296 checks, no browser needed, ~4 min
+npm run test:mobile       # 74 layout/behaviour tests over 6 phone profiles
+npm run test:camera       # the scanner end to end on a fake camera
+node tools/serve.js       # localhost:8123
+```
+
+**On flakiness:** the two browser suites run six profiles over two workers on
+one laptop while some of them build Kociemba tables. Under that load a test
+occasionally times out waiting for a view, or a WebKit worker crashes outright;
+Playwright's single retry catches it and reports "flaky". Seen three times on
+`iphone-se`, always passing in isolation. A *repeatable* failure is a real one —
+a layout bug fails identically twice.
 
 ## The 2x2 solver (js/solver2.js)
 
@@ -630,27 +672,33 @@ can read alike and a refused Snap would be a dead end.
 size with the least margin was the only one never measured. It has the full
 sweep now, plus a one-sticker-lost case at every size.
 
-### Where the camera actually is
+### Where the camera is — settled, and worth not re-opening
 
-The app tells people to stand the cube on a table and hold the phone over it,
-and then behaved as though the cube were being held up face-on. Three things
-followed from that and all three were wrong:
+**The cube is held up to the phone. The phone is not held over the cube.** The
+user confirmed this directly, after a round trip that assumed the opposite.
 
-- **The route.** Which rotation shows a new face depends entirely on where the
-  lens is: a turn about the upright axis changes the FRONT face and leaves the
-  top alone, a roll changes the TOP and leaves the front alone, and only a tip
-  changes both. The route was three left-turns — which, to a phone overhead,
-  shows the same face three times running. guide.js now has two routes:
-  `camera` (face U, three rolls toward you, then a quarter turn and two more
-  rolls) and `hand` (face F, the old left-turns) for the map screen, where
-  there is no phone in the way. `test/guide.test.js` runs both, and the
-  all-six-faces check is what would have caught the original.
-- **Where the last photo lands.** `orientToPhoto` put it at the front. It goes
-  on top now, because that is where it was when it was photographed — the cube
-  is sitting on the table exactly as the finished cube is drawn.
-- **The angle it is drawn from.** Pitch 30 made the top a shallow band above
-  the front, so the one face someone could actually identify was the hardest
-  one to see. 42 gives the top a proper face and keeps the front square-ish.
+Three things depend on it and they are one decision wearing three hats. Change
+any of them and the other two have to change with it:
+
+1. **The route** (`js/guide.js`). Which rotation reveals a new face depends
+   entirely on where the lens is: a turn about the upright axis changes the
+   FRONT face and leaves the top alone, a roll changes the TOP and leaves the
+   front alone, and only a tip changes both. Held-up-to-the-camera means the
+   face being read is the front one, so the route is three turns to the left
+   and then tips. To a phone held overhead, that route shows the same face
+   three times running.
+2. **Where the last photo lands** (`orientToPhoto` in `js/assemble.js`). The
+   FRONT face, because that is what the lens was looking at, and the cube is
+   still being held that way when the solve screen appears.
+3. **The angle the solve view is drawn from** (`FRONT_VIEW` in `js/app.js`).
+   Pitch 30, front square-on, top as a band above it — because the front is
+   the face someone can identify.
+
+There was a commit (563f386) that moved all three to the overhead assumption
+and a follow-up that moved them back. The lasting value of it is this note,
+`test/guide.test.js`'s all-six-faces check — which is what catches a route
+whose rotations do not change the face being looked at — and the size-aware
+mode notes, which were in the same commit and stayed.
 
 ### The audit, and what it found
 

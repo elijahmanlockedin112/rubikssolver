@@ -39,15 +39,16 @@ function applyPerm(state, perm) {
 }
 
 /*
- * Both routes, because there are two of them and they differ in the one thing
- * most likely to be wrong: which face the person is actually looking at.
+ * Every route, of which there is currently one.
  *
- * The phone is above the cube when scanning, so what it reads is the TOP face
- * and the route has to be rolls. The map screen has no phone, so it is the
- * face toward you and the route is turns. A route whose rotations do not
- * change the face being looked at shows the same face over and over and never
- * reaches all six — which is precisely what left-turns do to an overhead
- * camera, and is why this is checked per route rather than once.
+ * The loop is not ceremony. A route's rotations have to change the face the
+ * person is actually looking at, and which rotations do that depends entirely
+ * on where the lens is: turns about the upright axis change the front face and
+ * leave the top alone, rolls do the opposite. The cube here is held up to the
+ * camera, so turns are right — and the all-six-faces check below is what says
+ * so. A route added for any other way of holding it gets the same test for
+ * free, which is the point: this was briefly got wrong and the symptom was a
+ * scanner that showed the same face three times running.
  */
 Object.keys(CubeGuide.ROUTES).forEach(function (route) {
 
@@ -109,7 +110,7 @@ console.log('\nstepping back retraces the same route');
  * to an accumulated permutation can.
  */
 [3, 4].forEach(function (N) {
-  var guide = new CubeGuide(null, { size: N, route: 'camera', state: new Int32Array(6 * N * N) });
+  var guide = new CubeGuide(null, { size: N, state: new Int32Array(6 * N * N) });
   var forward = [];
   for (var i = 0; i < CubeGuide.STEPS; i++) { guide.setStep(i, false); forward.push(guide.faceCells().join(',')); }
   var backward = [];

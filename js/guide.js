@@ -43,27 +43,24 @@
   var SPIN_MS = 900;
 
   /*
-   * Two routes, because there are two places the cube gets looked at from.
+   * The route, and how the cube gets from each face to the next.
    *
-   * Which rotation shows you a new face depends entirely on where the lens is,
-   * and this is not a detail:
+   * The cube is held up to the camera, so the face being read is the one
+   * toward you and a turn about the upright axis brings the next one round.
+   * That is a choice about where the lens is, and it is worth writing down
+   * because getting it wrong is silent:
    *
-   *   - a turn about the vertical axis changes the FRONT face and leaves the
+   *   - a turn about the upright axis changes the FRONT face and leaves the
    *     top exactly where it was;
-   *   - a roll about the front-back axis changes the TOP and leaves the front
-   *     where it was;
+   *   - a roll about the front-back axis changes the TOP and leaves the front;
    *   - only a tip about the left-right axis changes both.
    *
-   * So a route of left-turns works perfectly when the cube is held up to the
-   * camera and shows the same face three times running when the phone is
-   * overhead — which is how this app tells people to scan, cube on a table and
-   * the phone held over it. That was the bug: the route assumed one thing and
-   * the advice said another.
-   *
-   *   camera — the phone is above the cube. The face being read is the TOP
-   *            one, so the route is tips and rolls.
-   *   hand   — nobody is holding a phone: the map screen, where the face being
-   *            painted is the one toward you. Left-turns, as before.
+   * So this route suits a cube held up to a phone, and would show a phone held
+   * OVER a cube the same face three times running. If the app ever tells people
+   * to lay the cube on a table instead, this has to change with it — and so do
+   * the face orientToPhoto lands the last shot on, and the angle the solve view
+   * is drawn from. All three together or none of them: they are one decision
+   * wearing three hats, and it was briefly made three different ways.
    *
    * `face` is which slot of the cube the person is looking at, and everything
    * else here is asked of it. `axis`/`dir` are the whole-cube rotation the
@@ -73,47 +70,12 @@
   var X = CubeN.AXIS.x, Y = CubeN.AXIS.y;
 
   // one quarter turn of the whole cube, and the same turn for the camera
-  function tip() { return { axis: X, dir: 1, dYaw: 0, dPitch: -90 }; }
-  function spinLeft() { return { axis: Y, dir: -1, dYaw: -90, dPitch: 0 }; }
   function turnLeft() { return { axis: Y, dir: -1, dYaw: -90, dPitch: 0 }; }
   function tipToward() { return { axis: X, dir: 1, dYaw: 0, dPitch: 90 }; }
 
   var ROUTES = {
-    /*
-     * The phone is above the cube, so the face it reads is the TOP one, and
-     * the route is rolls: three of them cover the top, back, bottom and front,
-     * and the last two need a quarter turn first to bring a side face round to
-     * where a roll can reach it.
-     *
-     * A roll about the front-back axis would be the tidy way to fetch the two
-     * sides, and it is not available: the renderer has a yaw and a pitch and
-     * no roll, so an instruction it cannot draw is an instruction that has to
-     * be said in two parts instead. Turn, then roll.
-     */
-    camera: {
-      face: 0,               // U
-      view: { yaw: 180, pitch: 90 },
-      steps: [
-        { moves: [], arrow: '', text: 'Stand the cube in front of the camera, any face up.' },
-        { moves: [tip()], arrow: '▼',
-          text: 'ROLL the cube toward you — the face that was at the back comes up.' },
-        { moves: [tip()], arrow: '▼',
-          text: 'Roll it toward you again: now the face that was underneath is up.' },
-        { moves: [tip()], arrow: '▼',
-          text: 'Once more toward you, for the face that started nearest you.' },
-        { moves: [spinLeft(), tip()], arrow: '◄',
-          text: 'Now a quarter turn to the LEFT first, then roll toward you again — that brings a side face up.' },
-        { moves: [tip(), tip()], arrow: '▼',
-          text: 'Roll it toward you twice more, and that is the last face.' }
-      ]
-    },
-    /*
-     * Nobody is holding a phone here — this is the map screen, where the face
-     * being painted is the one toward you, so a turn about the upright axis is
-     * what brings a new one round.
-     */
-    hand: {
-      face: 2,               // F
+    faceOn: {
+      face: 2,               // F — the face toward you
       view: { yaw: 0, pitch: 0 },
       steps: [
         { moves: [], arrow: '', text: 'Hold the cube upright, any face toward you.' },
@@ -160,7 +122,7 @@
     this.size = opts.size || 3;
     this.colors = opts.colors || [];
     this.state = opts.state || null;
-    this.route = ROUTES[opts.route] || ROUTES.hand;
+    this.route = ROUTES[opts.route] || ROUTES.faceOn;
     this.seq = this.route.steps;
     this.startText = opts.startText || this.seq[0].text;
     this.step = 0;
@@ -182,7 +144,7 @@
     }
   }
 
-  CubeGuide.STEPS = ROUTES.hand.steps.length;
+  CubeGuide.STEPS = ROUTES.faceOn.steps.length;
 
   CubeGuide.prototype.setSize = function (N) {
     this.size = N;

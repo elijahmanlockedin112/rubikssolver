@@ -67,21 +67,20 @@ that refused the camera.
       opinion — a face that looks wrong here is a face that was read badly.
 - [ ] It **holds the face for about two thirds of a second, then turns**. Is
       that long enough to look at? Too long to wait for?
-- [ ] The turn matches the words. "Roll the cube toward you" and the cube on screen
+- [ ] The turn matches the words. "Turn the cube LEFT" and the cube on screen
       turning the same way you would: do they agree, or does the picture say
       one thing and the sentence another? Try it without reading the words at
       all — the turn is meant to be the instruction.
-- [ ] **Follow the route, with the phone over the cube.** Roll it toward you
-      three times, then a quarter turn to the left and two more rolls. Does it
-      end up reading your cube correctly? Then ignore the route entirely and
-      show it faces in a random order and any way up — that must still work,
-      because the assembler does not care and the route is guidance, not a
-      requirement.
-- [ ] **Is the phone actually where the app thinks it is?** Everything now
-      assumes it is above the cube: the route is rolls, the last photo becomes
-      the TOP face, and the solve view looks down from 42 degrees. If you find
-      yourself holding the cube up to the camera instead, say so — that is a
-      different set of assumptions and only one of them can be right.
+- [ ] **Follow the route.** Three turns to the left, then tip toward you, then
+      tip twice more. Does it end up reading your cube correctly? Then ignore
+      the route entirely and show it faces in a random order and any way up —
+      that must still work, because the assembler does not care and the route
+      is guidance, not a requirement.
+- [ ] **The cube is held UP to the camera, not laid on a table.** Three things
+      depend on that and they have to agree: the route is turns, the last photo
+      becomes the FRONT face, and the solve view is drawn from 30 degrees with
+      the front square-on. If you catch yourself putting the cube down and
+      holding the phone over it instead, all three want changing together.
 - [ ] **Redo last** takes the face back off the little cube, turns it back, and
       the outline goes green again rather than staying amber at the face you
       just threw away.

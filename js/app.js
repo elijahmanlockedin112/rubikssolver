@@ -6,12 +6,11 @@
  * and one button. A finished scan does not stop to ask anything — it solves and
  * goes straight to the first move.
  *
- * Both ways in are guided round the cube by a grey cube on screen that turns
- * the way your hands should, and they take different routes for a reason: the
- * scanner's phone is above the cube, so the face it reads is the top one and
- * the route is rolls, while the map screen has no phone and the face being
- * painted is the one toward you. Both routes and the bookkeeping under them
- * live in guide.js.
+ * Both ways in follow the same route around the cube — front, three turns to
+ * the left, then tips for the top and the bottom — with a grey cube on screen
+ * turning the way your hands should. The cube is held up to the camera, so the
+ * face being read is always the one toward you. That route and the bookkeeping
+ * under it live in guide.js.
  */
 (function () {
   'use strict';
@@ -132,22 +131,21 @@
    * you. Square on, the front face is a square and a turn reads as up, down,
    * left or right — the same words the instructions use.
    *
-   * The height is the part that had to change. A scan is taken with the phone
-   * held over the cube, so the face someone has just been staring at is the
-   * TOP one, and it is what the finished cube is now turned to match (see
-   * orientToPhoto). Drawing that reference face as a shallow 30-degree band
-   * above the front made the one face they could identify the hardest one to
-   * see. At 42 degrees the top is a proper face and the front is still a
-   * square-ish one, which is roughly the angle you are looking from anyway
-   * with a phone in one hand and a cube on the table.
+   * 30 degrees, because the FRONT face is the reference. The cube is held up
+   * to the camera, so the face someone has just been staring at is the one
+   * facing them, and it is the one the finished cube is turned to match (see
+   * orientToPhoto). It gets the square-on treatment and the top rides above it
+   * as a band. Tilting further to give the top a proper face was tried, on the
+   * theory that the phone was overhead, and it is the wrong trade whenever it
+   * is not: it foreshortens the one face a person can actually identify.
    *
    * And it does not move. Being able to drag the cube around sounds like a
    * feature and is not: one accidental swipe and the picture no longer matches
    * the cube in your hand, with nothing to say it has happened and no way back
    * to square except by feel.
    */
-  var FRONT_VIEW = { yaw: 0, pitch: 42 };
-  var BACK_VIEW = { yaw: 180, pitch: -42 };
+  var FRONT_VIEW = { yaw: 0, pitch: 30 };
+  var BACK_VIEW = { yaw: 180, pitch: -30 };
 
   var previewFront = new CubeView($('preview-front'), {
     colors: PALETTE, state: colorState, draggable: false,
@@ -165,9 +163,6 @@
   // The grey cube on the map screen: the same route the scanner walks, so a
   // cube typed in by hand is turned the same way as one that is photographed.
   var editGuide = new CubeGuide($('edit-guide-canvas'), {
-    // no phone here: the face you paint is the one toward you, so this is the
-    // turn-it-in-your-hands route rather than the scanner's overhead one
-    route: 'hand',
     size: size, colors: PALETTE, state: colorState, startText: ''
   });
 
@@ -326,7 +321,7 @@
   function updateHoldText() {
     if (orientedFromScan) {
       editGuide.startText = 'Hold the cube exactly as you did for your last photo — that face is the ' +
-        'one on top here, because that is where the camera was.';
+        'one toward you here.';
     } else if (size !== 3) {
       editGuide.startText = 'Hold the cube upright with any face toward you — a ' + size + '×' + size +
         ' has no fixed centre, so it is the order that matters, not which face you start on.';

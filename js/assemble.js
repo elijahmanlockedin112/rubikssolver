@@ -513,13 +513,11 @@
    * looking at a second ago and the cube is almost certainly still that way up.
    *
    * Which face of the finished cube that photo becomes is `face`, and it is
-   * the TOP one by default, because that is where the lens was: this app tells
-   * people to stand the cube on a table and hold the phone over it, so the
-   * face being photographed is the one pointing at the ceiling, not the one
-   * pointing at a person. Landing it at the front instead — which is what this
-   * did — turned the cube a quarter over from the way it was actually sitting,
-   * and every move after that was described from an angle nobody was looking
-   * from.
+   * the FRONT one, because the cube is held up to the camera: what the lens
+   * sees is the face pointing at the person holding it. Landing it anywhere
+   * else turns the cube away from how it is actually being held, and every
+   * move after that gets described from an angle nobody is looking from —
+   * which is what "it starts in the wrong place" looks like from the outside.
    *
    * Which of the 24 turns to use is not worked out, it is looked up: apply each
    * and keep the one whose chosen face comes out exactly equal to the photo. If
@@ -528,7 +526,7 @@
    */
   function orientToPhoto(state, photoCells, N, face) {
     var per = N * N;
-    var slot = (face === undefined ? 0 : face) * per;    // 0 is U, the top
+    var slot = (face === undefined ? 2 : face) * per;    // 2 is F, the face toward you
     if (!state || !photoCells || photoCells.length !== per) return state;
     var turns = CubeN.rotations(N);
     for (var r = 0; r < turns.length; r++) {
