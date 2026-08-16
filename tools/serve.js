@@ -27,7 +27,11 @@ var types = {
   '.json': 'application/json',
   '.md': 'text/plain; charset=utf-8',
   '.png': 'image/png',
-  '.svg': 'image/svg+xml'
+  '.svg': 'image/svg+xml',
+  // Chrome refuses a manifest served as octet-stream, which is what the
+  // fallback below would have given it, and then says nothing about why the
+  // app is not installable
+  '.webmanifest': 'application/manifest+json'
 };
 
 function sendJson(res, code, body) {

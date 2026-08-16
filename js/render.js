@@ -41,6 +41,19 @@
     return [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]];
   }
 
+  /*
+   * Every live view, so a window resize can tell them all their cached box is
+   * stale. One listener rather than one per view, and views take themselves
+   * off it when destroyed — the scanner builds and throws away a view every
+   * time it opens.
+   */
+  var LIVE = [];
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    var restale = function () { LIVE.forEach(function (v) { v.remeasure(); }); };
+    window.addEventListener('resize', restale);
+    window.addEventListener('orientationchange', function () { setTimeout(restale, 250); });
+  }
+
   function CubeView(canvas, opts) {
     opts = opts || {};
     this.canvas = canvas;
@@ -71,15 +84,55 @@
      * solution while the other view, which has no callback, carried on turning.
      * A frame that fails should cost that frame, not the animation.
      */
+    /*
+     * The reschedule is at the bottom and conditional, and both halves of that
+     * matter. tick() is what decides there is nothing to do and stops the
+     * loop, and it is called from in here — so an unconditional
+     * requestAnimationFrame on the next line starts it again, every time,
+     * cancelling a frame id that has already fired. That is not a
+     * hypothetical: it is the exact bug that kept the scanner's detector
+     * running on a stopped video for the life of the page, and it came back
+     * here wearing different clothes. Measured: 480 ticks in two seconds
+     * across four views with one screen showing, against 120 after.
+     */
     this.loop = function () {
+      self.raf = 0;
       try {
         self.tick();
       } catch (err) {
         if (typeof console !== 'undefined' && console.error) console.error('cube view frame failed:', err);
       }
-      self.raf = requestAnimationFrame(self.loop);
+      if (!self.stopped) self.raf = requestAnimationFrame(self.loop);
     };
-    this.raf = requestAnimationFrame(this.loop);
+
+    /*
+     * A view nobody can see does no work at all.
+     *
+     * There are five of these alive at once — two on the home screen, one on
+     * the solve screen, one on the map, one in the scanner — and only ever one
+     * screen showing. Each was running its own animation frame forever, and
+     * each frame measured its canvas with getBoundingClientRect, which forces
+     * the browser to lay the page out. Four hidden cubes doing that sixty
+     * times a second is a phone getting warm for nothing.
+     *
+     * An IntersectionObserver is what says whether anyone can see it. The
+     * fallback, for anything without one, is the old behaviour: keep running.
+     * An animation in flight keeps ticking either way, because its callback is
+     * what advances the solution and it has to fire even if the screen changed
+     * underneath it.
+     */
+    this.visible = true;
+    if (typeof IntersectionObserver === 'function') {
+      this.watcher = new IntersectionObserver(function (entries) {
+        var seen = entries[entries.length - 1].isIntersecting;
+        if (seen === self.visible) return;
+        self.visible = seen;
+        if (seen) { self.measured = null; self.dirty = true; self.start(); }
+      });
+      this.watcher.observe(canvas);
+    }
+    LIVE.push(this);
+    this.start();
     if (opts.draggable !== false) this.enableDrag();
     if (this.onStickerPick) this.enablePicking();
   }
@@ -92,6 +145,8 @@
     this.geometry = this.buildGeometry();
     this.anim = null;
     this.dirty = true;
+    this.measured = null;
+    this.start();
   };
 
   /**
@@ -159,14 +214,31 @@
   CubeView.prototype.setState = function (state) {
     this.state = state;
     this.dirty = true;
+    this.start();
   };
 
   CubeView.prototype.setView = function (yaw, pitch) {
     this.yaw = yaw; this.pitch = pitch; this.dirty = true;
+    this.start();
+  };
+
+  CubeView.prototype.start = function () {
+    this.stopped = false;
+    if (this.raf) return;
+    this.raf = requestAnimationFrame(this.loop);
+  };
+
+  CubeView.prototype.stop = function () {
+    this.stopped = true;
+    cancelAnimationFrame(this.raf);
+    this.raf = 0;
   };
 
   CubeView.prototype.destroy = function () {
-    cancelAnimationFrame(this.raf);
+    this.stop();
+    if (this.watcher) { this.watcher.disconnect(); this.watcher = null; }
+    var at = LIVE.indexOf(this);
+    if (at >= 0) LIVE.splice(at, 1);
   };
 
   /** Animate one move. `onDone` fires once the layer has landed. */
@@ -179,6 +251,14 @@
     };
     this.last = performance.now();
     this.dirty = true;
+    /*
+     * Start the loop, always. A move played on a view that is off screen —
+     * which happens the instant a screen is swapped mid-animation — would
+     * otherwise never tick, never finish, and never call back; and that
+     * callback is what advances the solution, so the player would sit there
+     * waiting on a cube nobody can see.
+     */
+    this.start();
   };
 
   CubeView.prototype.stopAnimation = function () {
@@ -189,6 +269,10 @@
 
   CubeView.prototype.tick = function () {
     var now = performance.now();
+    // Off screen and nothing in flight: stop the loop entirely rather than
+    // spin. setState/setView/showArrowFor all set `dirty`, and becoming
+    // visible restarts it, so nothing is lost by not being here.
+    if (!this.visible && !this.anim) { this.stop(); return; }
     this.resize();
     if (this.anim) {
       var dt = now - (this.last || now);
@@ -201,14 +285,33 @@
         if (done) done();
       }
     } else if (this.showArrowFor) {
-      this.dirty = true;
+      /*
+       * The waiting arrow pulses, and that pulse used to cost a full redraw
+       * every frame — 54 quads sorted and painted sixty times a second, on the
+       * screen the app spends nearly all its time on, to breathe some light in
+       * and out of one curve. Twenty-five times a second looks identical and
+       * costs less than half as much; the animation itself is untouched and
+       * still runs at whatever the display does.
+       */
+      if (now - (this.pulsedAt || 0) > 40) { this.pulsedAt = now; this.dirty = true; }
     }
     if (this.dirty) { this.draw(); this.dirty = false; }
   };
 
+  /*
+   * Measure the canvas, but not sixty times a second.
+   *
+   * getBoundingClientRect forces the browser to lay out the page, and this
+   * used to run every frame on every view. The size only changes when the
+   * window does, when the phone is turned, or when a screen is swapped in —
+   * so it is measured when something says it might have, and the number is
+   * kept. `measured` is cleared by that, and by becoming visible.
+   */
   CubeView.prototype.resize = function () {
+    if (this.measured) return;
     var dpr = window.devicePixelRatio || 1;
     var rect = this.canvas.getBoundingClientRect();
+    this.measured = { w: rect.width, h: rect.height, dpr: dpr };
     var w = Math.max(1, Math.round(rect.width * dpr));
     var h = Math.max(1, Math.round(rect.height * dpr));
     if (this.canvas.width !== w || this.canvas.height !== h) {
@@ -216,6 +319,19 @@
       this.canvas.height = h;
       this.dirty = true;
     }
+  };
+
+  /** Forget the cached size — the box may have changed. */
+  CubeView.prototype.remeasure = function () {
+    this.measured = null;
+    this.dirty = true;
+    this.start();
+  };
+
+  /** The canvas box in CSS pixels, measured at most once per layout change. */
+  CubeView.prototype.box = function () {
+    this.resize();
+    return this.measured;
   };
 
   CubeView.prototype.camera = function () {
@@ -230,9 +346,9 @@
   };
 
   CubeView.prototype.projector = function () {
-    var rect = this.canvas.getBoundingClientRect();
-    var dpr = window.devicePixelRatio || 1;
-    var w = rect.width * dpr, h = rect.height * dpr;
+    var box = this.box();
+    var dpr = box.dpr;
+    var w = box.w * dpr, h = box.h * dpr;
     var dist = 9.5 * this.size / 3;
     // a bigger cube is physically bigger, so pull the camera back with it and
     // the thing stays the same size on screen
@@ -247,9 +363,7 @@
 
   CubeView.prototype.draw = function () {
     var ctx = this.ctx;
-    var dpr = window.devicePixelRatio || 1;
-    var rect = this.canvas.getBoundingClientRect();
-    ctx.clearRect(0, 0, rect.width * dpr, rect.height * dpr);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     var cam = this.camera();
     var project = this.projector();
@@ -457,6 +571,8 @@
   };
 
   CubeView.prototype.pick = function (e) {
+    // a click is rare and its position is the whole question, so this is the
+    // one place that measures fresh rather than trusting the cached box
     var rect = this.canvas.getBoundingClientRect();
     var dpr = window.devicePixelRatio || 1;
     var mx = (e.clientX - rect.left) * dpr, my = (e.clientY - rect.top) * dpr;

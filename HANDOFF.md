@@ -509,6 +509,90 @@ paint faces into the wrong slots for a while.
   where they overlap, look fine, and swallow each other's taps. Playwright
   caught it as "Clear intercepts pointer events" on Next.
 
+### Academy mode
+
+The layer-by-layer solver came back, not as a second answer but as a second
+*mode*: the beginner method, taught on the scramble in your hands. The mode is
+picked on the home screen before scanning, and switched on the solve screen
+without rescanning (`#btn-mode`).
+
+What makes it teaching rather than a longer move list, and therefore what would
+be worth noticing if it broke:
+
+- **Seven stages, always seven.** A scramble can arrive with a stage already
+  done — the top cross more often than you would think — and the solver then
+  emits no group for it. Numbering off the solution says "stage 5 of 6", which
+  is a method that does not exist; `stagePlan()` in app.js walks
+  `Academy.STAGES` instead and marks a stage with no moves as done.
+- **A lesson card before each stage**, held by `introDone` so it appears once
+  per stage and again if you jump back to that stage deliberately.
+- **The algorithm named, written out, with your place in it.** solver.js now
+  tags every last-layer move with the id of the algorithm it came from
+  (`macroSearch` does it), academy.js holds the names and notation, and
+  `Academy.placeInAlg` works out where in the seven-or-fourteen you are, and
+  which repetition. It refuses rather than guesses if the run length is not a
+  whole number of repetitions — a strip pointing at the wrong turn is worse
+  than a strip pointing at nothing.
+- **Cancellation stops at an algorithm.** `cancel()` in solver.js will not fold
+  two turns together if either is part of an algorithm. Costs a few moves; buys
+  a solution that is the thing it claims to be. Average went 110 → 116.
+
+`test/academy.test.js` is the guard for the join between the two files: the
+stage ids have to match, everything that comes up has to have teaching, and the
+highlighted token has to be the move actually being made.
+
+### The audit, and what it found
+
+- **The render loop never stopped.** `stop()` cancelled the current frame id —
+  which had already fired — and the bottom of `loop()` scheduled another
+  unconditionally. Exactly the bug that once kept the scanner's detector
+  running on a stopped video, in a different file. Five views, one screen
+  visible, all five drawing: measured 480 ticks in two seconds, 120 after.
+  Views now also stop when an IntersectionObserver says nobody can see them,
+  and `getBoundingClientRect` is cached rather than called per frame per view.
+- **The waiting arrow's pulse cost a full redraw at 60fps** on the screen the
+  app spends nearly all its time on. Throttled to 25fps: 120 draws per two
+  seconds became 40, and it looks identical.
+- **`Kociemba.prepare` could run twice at once** now that the app warms the
+  tables while the page is idle. A build in flight collects later callers
+  instead of starting a second one.
+- **The 4x4 solver is fetched on demand.** 98KB of parse that a 3x3 never used.
+- **Automated runs were filing diagnostic frames.** `reportMiss` posts frames
+  the detector could not read to `testdata/`, which is the corpus
+  `realshots.test.js` measures against — three synthetic frames from one
+  afternoon of Playwright runs dropped it from 8/10 to 8/13, which reads as a
+  regression in a detector nobody had touched. It now refuses when
+  `navigator.webdriver` is set.
+- **`autosnap.test.js` was flaky about one run in six**, two different ways.
+  Both were the same cause: a "p99" of 45 samples is the maximum wearing a
+  percentile's clothes, and asserting on the maximum is what the percentiles
+  were introduced to stop. `at()` now caps the quantile at whatever leaves
+  three samples above it and prints which percentile it really used. The 2x2
+  "two faces in a row" check also got the 10% allowance its sibling already
+  had, for the documented reason: four stickers is the least a face can be told
+  apart by, and the measured worst pair sits at 12 against a bar of 10.
+- **Keyboard focus was invisible** — the button styling removed the default
+  ring and nothing put one back. `:focus-visible` does now.
+- **Two `.row-buttons` in one grid cell** overlapped and ate each other's taps.
+
+### Offline, and the home screen
+
+`sw.js` is network-first, cache-fallback. Cache-first is the usual advice and
+is a trap for something published this often: it is how people end up looking
+at yesterday's version and being told their change did not land. Bump `VERSION`
+when the file list changes.
+
+`manifest.webmanifest` + `icon.svg` + the two PNGs make it installable. iOS
+will not use an SVG for a home-screen icon and Chrome wants a raster in the
+manifest, so `node tools/make-icons.js` rasterises the SVG with the WebKit that
+is already installed for the mobile tests. The icons are committed; that script
+is not part of any suite.
+
+Also new and small: the screen is kept awake while solving (`navigator.wakeLock`,
+released on leaving the solve screen), and a 12ms buzz marks a move landing
+where the hardware has one — Android does, iOS Safari has never supported the
+Vibration API and ignores it.
+
 ## Commands
 
 ```bash

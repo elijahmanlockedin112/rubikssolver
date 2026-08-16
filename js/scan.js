@@ -534,6 +534,18 @@
     this.message(reason + '. ' + advice, true);
     this.misses = (this.misses || 0) + 1;
 
+    /*
+     * Say what went wrong, but do not file it.
+     *
+     * The folder this posts to is for frames a person took and expected to
+     * work, and test/realshots.test.js holds the detector to account against
+     * them. A browser being driven by a test is not a person, and its frames
+     * are synthetic — three of them got in during one afternoon of automated
+     * runs and dropped the pass rate from 8/10 to 8/13, which reads as the
+     * detector regressing when nothing about it had changed.
+     */
+    if (navigator.webdriver) return;
+
     // downscale before sending; the detector never sees more than this anyway
     var w = frame.width, h = frame.height;
     var scale = Math.min(1, 640 / Math.max(w, h));

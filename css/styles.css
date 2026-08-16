@@ -30,6 +30,20 @@
 * { box-sizing: border-box; }
 
 /*
+ * A visible focus ring, for anyone driving this from a keyboard.
+ *
+ * There was none: the browser default is removed by the button styling here,
+ * and nothing put one back, so tabbing through the solve screen moved an
+ * invisible cursor. :focus-visible rather than :focus, so it appears for a
+ * keyboard and not for a thumb.
+ */
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/*
  * The page is exactly one window tall and never scrolls.
  *
  * dvh rather than vh: on iOS Safari 100vh is the height with the address bar
@@ -107,6 +121,20 @@ body.solving .topbar { display: none; }
 }
 .btn-scan:hover { filter: brightness(1.12); border-color: transparent; }
 .flat-note { margin: 0; font-size: 0.76rem; color: var(--text-dim); text-align: center; }
+
+/* ---------- which road out of the scanner ---------- */
+.mode-picker { display: flex; gap: 8px; }
+.mode-option {
+  font: inherit; font-size: 0.95rem; font-weight: 600;
+  color: var(--text-dim); background: var(--bg-panel-2);
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 12px; cursor: pointer; flex: 1 1 0; min-height: 48px;
+}
+.mode-option:hover { border-color: #3a4150; color: var(--text); }
+.mode-option.is-active {
+  border-color: var(--accent-2); color: var(--text); background: rgba(55, 211, 154, 0.14);
+}
+.mode-note { margin: 0; font-size: 0.78rem; color: var(--text-dim); text-align: center; min-height: 1.2em; }
 
 /* ---------- size picker ---------- */
 .size-picker { flex: none; display: flex; gap: 8px; }
@@ -317,6 +345,72 @@ body.solving .topbar { display: none; }
 .move-title { font-size: 1.25rem; margin: 0 0 4px; line-height: 1.2; }
 .move-detail { margin: 0; font-size: 0.95rem; color: #cfd6e4; }
 
+/* ---------- academy ---------- */
+/*
+ * The seven stages, always on screen while being taught. Seeing the shape of
+ * the method — how many stages there are, which one this is, how many are
+ * behind you — is most of what makes it feel learnable rather than endless,
+ * and each dot is a way back into that stage's lesson.
+ */
+.stage-strip { flex: none; display: flex; gap: 6px; }
+.stage-strip[hidden] { display: none; }
+.stage-dot {
+  flex: 1 1 0;
+  min-height: 30px;
+  font: inherit; font-size: 0.72rem; font-weight: 650;
+  color: var(--text-dim);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0;
+}
+.stage-dot.is-done { background: rgba(55, 211, 154, 0.18); border-color: rgba(55,211,154,0.4); color: #bff3de; }
+.stage-dot.is-here { background: rgba(76,141,255,0.2); border-color: var(--accent); color: var(--text); }
+
+.stage-line {
+  margin: 0 0 4px;
+  font-size: 0.68rem; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--accent-2);
+}
+.stage-line[hidden] { display: none; }
+.academy-note {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.academy-note[hidden] { display: none; }
+
+/*
+ * The algorithm, written the way every other tutorial writes it, with the turn
+ * you are on picked out. Someone who learns "Sune" here can ask about it
+ * anywhere; the strip is what makes the connection between the arrow on the
+ * cube and the notation they will meet everywhere else.
+ */
+.alg-strip {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  font-family: "Consolas", "SF Mono", ui-monospace, monospace;
+  font-size: 0.82rem;
+}
+.alg-strip[hidden] { display: none; }
+.alg-name {
+  font-family: inherit;
+  font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-dim);
+  margin-right: 4px;
+  width: 100%;
+}
+.alg-move {
+  padding: 2px 6px; border-radius: 5px;
+  background: var(--bg-panel); border: 1px solid var(--line); color: var(--text-dim);
+}
+.alg-move.is-now { background: var(--accent); border-color: var(--accent); color: #06111f; font-weight: 700; }
+
 /* the one moment in this app that deserves an animation */
 .instruction-card.is-solved {
   border-color: var(--accent-2);
@@ -505,13 +599,14 @@ body.solving .topbar { display: none; }
   .view-edit .row-quiet { grid-column: 2; grid-row: 5; }
 
   .view-solve { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-                grid-template-rows: auto auto 1fr auto auto; }
-  .view-solve .solve-top { grid-column: 1 / -1; }
-  .view-solve .repair-note { grid-column: 1 / -1; }
-  .view-solve .stage-canvases { grid-column: 1; grid-row: 3 / span 3; }
-  .view-solve .instruction-card { grid-column: 2; grid-row: 3; align-self: center; max-height: none; }
-  .view-solve .transport { grid-column: 2; grid-row: 4; align-self: end; }
-  .view-solve .btn-restart { grid-column: 2; grid-row: 5; }
+                grid-template-rows: auto auto auto 1fr auto auto; }
+  .view-solve .solve-top { grid-column: 1 / -1; grid-row: 1; }
+  .view-solve .stage-strip { grid-column: 1 / -1; grid-row: 2; }
+  .view-solve .repair-note { grid-column: 1 / -1; grid-row: 3; }
+  .view-solve .stage-canvases { grid-column: 1; grid-row: 4 / span 3; }
+  .view-solve .instruction-card { grid-column: 2; grid-row: 4; align-self: center; max-height: none; }
+  .view-solve .transport { grid-column: 2; grid-row: 5; align-self: end; }
+  .view-solve .solve-quiet { grid-column: 2; grid-row: 6; }
 }
 
 /*
@@ -550,13 +645,15 @@ body.solving .topbar { display: none; }
   .view-edit .row-quiet { grid-column: 2; grid-row: 5; }
   .view-edit .guide-line { font-size: 0.72rem; }
 
-  .view-solve { grid-template-rows: auto auto 1fr auto auto; }
+  .view-solve { grid-template-rows: auto auto auto 1fr auto auto; }
   .view-solve .solve-top { grid-column: 1 / -1; grid-row: 1; }
-  .view-solve .repair-note { grid-column: 1 / -1; grid-row: 2; max-height: 12vh; }
-  .view-solve .stage-canvases { grid-column: 1; grid-row: 3 / span 3; }
-  .view-solve .instruction-card { grid-column: 2; grid-row: 3; max-height: 100%; align-self: start; }
-  .view-solve .transport { grid-column: 2; grid-row: 4; }
-  .view-solve .btn-restart { grid-column: 2; grid-row: 5; }
+  .view-solve .stage-strip { grid-column: 1 / -1; grid-row: 2; }
+  .view-solve .repair-note { grid-column: 1 / -1; grid-row: 3; max-height: 12vh; }
+  .view-solve .stage-canvases { grid-column: 1; grid-row: 4 / span 3; }
+  .view-solve .instruction-card { grid-column: 2; grid-row: 4; max-height: 100%; align-self: start; }
+  .view-solve .transport { grid-column: 2; grid-row: 5; }
+  .view-solve .solve-quiet { grid-column: 2; grid-row: 6; }
+  .view-home .mode-note, .view-home .flat-note { display: none; }
   .view-solve .move-title { font-size: 1.05rem; }
   .view-solve .move-detail { font-size: 0.85rem; }
 

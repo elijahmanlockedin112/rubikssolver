@@ -318,14 +318,65 @@ test('every control is big enough to hit', async function ({ page }) {
   expect(bad, 'solve, under ' + TAP_MIN + 'px: ' + JSON.stringify(bad)).toEqual([]);
 });
 
-test('the home screen is one button and a cube', async function ({ page }) {
-  // The point of the redesign: what you land on is a cube, a size and Scan.
-  // Anything else that grew back here would be a regression, so it is counted.
-  var count = await page.locator('#view-setup button:visible').count();
-  expect(count, 'buttons on the home screen').toBeLessThanOrEqual(5);   // 3 sizes + scan + type-in
+test('the home screen is a cube, a size, a choice and Scan', async function ({ page }) {
+  /*
+   * Counted by name rather than by number, so this says what the home screen
+   * is rather than how much of it there is. Anything that grows back onto it
+   * has to be added here deliberately — which is the point, since the density
+   * of this screen is the thing that got rebuilt.
+   */
+  var ids = await page.evaluate(function () {
+    return [].filter.call(document.querySelectorAll('#view-setup button'), function (b) {
+      return b.offsetParent !== null;
+    }).map(function (b) { return b.id || b.className; });
+  });
+  expect(ids.sort().join(','), 'buttons on the home screen').toBe(
+    ['size-option', 'size-option is-active', 'size-option',
+     'mode-option is-active', 'mode-option', 'btn-scan', 'btn-edit'].sort().join(','));
 
-  var off = await offScreen(page, ['#btn-scan', '#btn-edit', '.size-picker', '.preview-wrap']);
+  var off = await offScreen(page,
+    ['#btn-scan', '#btn-edit', '.size-picker', '.mode-picker', '.preview-wrap']);
   expect(off, 'off screen: ' + JSON.stringify(off)).toEqual([]);
+});
+
+/*
+ * Academy mode: the beginner method, on the cube that was actually scanned.
+ *
+ * What makes it teaching rather than a longer list of moves is the structure —
+ * seven stages that are always seven, a lesson before each one, and the
+ * algorithm named and written out with your place in it. Those are the things
+ * checked here, because those are the things that would quietly stop
+ * appearing.
+ */
+test('academy teaches seven stages on your own scramble', async function ({ page }) {
+  await page.locator('.mode-option[data-mode="academy"]').click();
+  await goToSolve(page);
+
+  // the method has seven stages whatever this particular cube needed
+  await expect(page.locator('.stage-dot')).toHaveCount(7);
+  await expect(page.locator('#stage-line')).toContainText('of 7');
+
+  // it opens on the lesson, not on a move
+  await expect(page.locator('#btn-next')).toHaveText(/Start this stage/);
+  await expect(page.locator('#academy-note')).toBeVisible();
+  var goal = await page.locator('#move-detail').textContent();
+  expect(goal.length, 'the stage should say what it is for').toBeGreaterThan(30);
+
+  await page.locator('#btn-next').click();
+  await expect(page.locator('#move-counter')).toHaveText(/Move 1 of/);
+
+  var o = await tallOverflow(page);
+  expect(o.px, 'academy is ' + o.px + 'px too tall: ' + JSON.stringify(o.blame)).toBeLessThanOrEqual(0);
+  var bad = await smallControls(page, '#view-solve', TAP_MIN);
+  // the stage dots are a strip of seven across a 375px screen; they get the
+  // same exemption the stickers used to, and for the same arithmetic reason
+  bad = bad.filter(function (b) { return String(b.what).indexOf('stage-dot') < 0; });
+  expect(bad, 'academy, under ' + TAP_MIN + 'px: ' + JSON.stringify(bad)).toEqual([]);
+
+  // and back to the direct answer on the same cube, without rescanning
+  await page.locator('#btn-mode').click();
+  await expect(page.locator('#stage-strip')).toBeHidden({ timeout: 60000 });
+  await expect(page.locator('#move-counter')).toHaveText(/Move 1 of/);
 });
 
 test('the scanner fits on the screen with its buttons reachable', async function ({ page }) {

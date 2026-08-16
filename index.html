@@ -7,7 +7,17 @@
      of zero, which is what every inset in styles.css depends on. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Rubik's Cube Coach</title>
-<meta name="description" content="Scan your cube with the camera and follow the moves, one at a time.">
+<meta name="description" content="Scan your cube with the camera and follow the moves, one at a time — or learn to solve it yourself, on your own scramble.">
+<meta name="theme-color" content="#0e1015">
+<!-- Add to Home Screen: opens without browser chrome, which is worth real
+     screen height on a phone, and gives the safe-area insets their standalone
+     values rather than a Safari tab's. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cube Coach">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <!--
@@ -41,6 +51,13 @@
   <p id="setup-message" class="message" role="status"></p>
 
   <div class="home-actions">
+    <!-- What the scan is for. Both roads start at the camera; this is the
+         difference between being handed the answer and being taught it. -->
+    <div class="mode-picker" role="group" aria-label="What to do with your cube">
+      <button class="mode-option is-active" data-mode="fast">⚡ Solve it</button>
+      <button class="mode-option" data-mode="academy">🎓 Teach me</button>
+    </div>
+    <p class="mode-note" id="mode-note">The shortest way home — about 20 turns, found by search.</p>
     <button id="btn-scan" class="btn btn-scan">📷 Scan my cube</button>
     <p class="flat-note">Best on a flat surface in even light — stand the cube on a table and hold the phone over it.</p>
     <button id="btn-edit" class="btn btn-ghost">Type the colours in instead</button>
@@ -81,11 +98,16 @@
 <!-- ───────────────────────── follow the moves ───────────────────────── -->
 <main id="view-solve" class="view view-solve" hidden>
   <div class="solve-top">
-    <button id="btn-back" class="btn btn-ghost btn-icon" title="Back">←</button>
+    <button id="btn-back" class="btn btn-ghost btn-icon" title="Back" aria-label="Back to the start screen">←</button>
     <div class="progress"><div id="progress-fill" class="progress-fill"></div></div>
-    <button id="btn-voice" class="btn btn-ghost btn-icon" title="Say &quot;next&quot; to move on" hidden>🎤</button>
+    <button id="btn-voice" class="btn btn-ghost btn-icon" title="Say &quot;next&quot; to move on"
+            aria-label="Listen for spoken commands" aria-pressed="false" hidden>🎤</button>
     <span class="counter" id="move-counter">Move 0 of 0</span>
   </div>
+
+  <!-- Academy only: the seven stages, where you are in them, and a way back to
+       any of them. Tapping a dot jumps to the start of that stage. -->
+  <div class="stage-strip" id="stage-strip" hidden></div>
 
   <p id="repair-note" class="repair-note" hidden></p>
 
@@ -93,18 +115,24 @@
     <canvas id="solve-front-canvas" class="cube-canvas big"></canvas>
   </div>
 
-  <div class="instruction-card" id="instruction-card">
+  <div class="instruction-card" id="instruction-card" aria-live="polite">
+    <p class="stage-line" id="stage-line" hidden></p>
     <h2 class="move-title" id="move-title">Ready</h2>
     <p class="move-detail" id="move-detail">Tap Next to make the first move.</p>
+    <p class="academy-note" id="academy-note" hidden></p>
+    <p class="alg-strip" id="alg-strip" hidden></p>
   </div>
 
   <div class="transport">
     <button id="btn-prev" class="btn" title="Previous move (←)">‹ Back</button>
-    <button id="btn-replay" class="btn btn-icon" title="Show this move again">↻</button>
+    <button id="btn-replay" class="btn btn-icon" title="Show this move again" aria-label="Show this move again">↻</button>
     <button id="btn-next" class="btn btn-primary btn-next" title="Next move (→)">Next ›</button>
   </div>
 
-  <button id="btn-restart" class="btn btn-ghost btn-restart">Not solved? Start over</button>
+  <div class="row-buttons row-quiet solve-quiet">
+    <button id="btn-restart" class="btn btn-ghost btn-restart">Not solved? Start over</button>
+    <button id="btn-mode" class="btn btn-ghost">🎓 Teach me this one</button>
+  </div>
 </main>
 
 <!-- ───────────────────────── scanner ───────────────────────── -->
@@ -158,22 +186,31 @@
 
 <canvas id="confetti" class="confetti" aria-hidden="true" hidden></canvas>
 
-<script src="js/cube.js"></script>
-<script src="js/cuben.js"></script>
-<script src="js/kociemba.js"></script>
-<script src="js/solver2.js"></script>
-<script src="js/tpr.js"></script>
-<script src="js/solver4.js"></script>
-<script src="js/render.js"></script>
-<script src="js/guide.js"></script>
-<script src="js/detect.js"></script>
-<script src="js/assemble.js"></script>
-<script src="js/assemble4.js"></script>
-<script src="js/repair.js"></script>
-<script src="js/autosnap.js"></script>
-<script src="js/celebrate.js"></script>
-<script src="js/voice.js"></script>
-<script src="js/scan.js"></script>
-<script src="js/app.js"></script>
+<!--
+  defer, so none of this blocks the first paint: the browser fetches them while
+  it is still laying the page out and runs them, in this order, once it is
+  done. Order matters — every file here is a plain global.
+
+  tpr.js and solver4.js are NOT here. Between them they are 98KB of a 4x4
+  solver that a 3x3 never touches, and parsing them cost every visit. app.js
+  fetches them the first time a 4x4 is actually solved.
+-->
+<script defer src="js/cube.js"></script>
+<script defer src="js/cuben.js"></script>
+<script defer src="js/kociemba.js"></script>
+<script defer src="js/solver.js"></script>
+<script defer src="js/solver2.js"></script>
+<script defer src="js/render.js"></script>
+<script defer src="js/guide.js"></script>
+<script defer src="js/detect.js"></script>
+<script defer src="js/assemble.js"></script>
+<script defer src="js/assemble4.js"></script>
+<script defer src="js/repair.js"></script>
+<script defer src="js/autosnap.js"></script>
+<script defer src="js/celebrate.js"></script>
+<script defer src="js/voice.js"></script>
+<script defer src="js/academy.js"></script>
+<script defer src="js/scan.js"></script>
+<script defer src="js/app.js"></script>
 </body>
 </html>

@@ -15,7 +15,9 @@ accounts, no API keys, no network. Open `index.html` and it works, offline, fore
 
 1. Open the [live version](https://elijahmanlockedin112.github.io/rubikssolver/),
    or `index.html` from a copy of this repo. On a phone, use the live version —
-   browsers only hand over the camera on an https:// address.
+   browsers only hand over the camera on an https:// address. Add it to your
+   home screen and it opens without browser chrome and works with no signal.
+   Then pick what you want out of it: **⚡ Solve it** or **🎓 Teach me**.
 2. Pick your cube's size and press **Scan my cube**. Two cubes appear: what the
    camera sees, and the cube being built from it. Show it a face — it takes the
    photo itself — and the second cube paints that face in, holds it long enough
@@ -33,6 +35,36 @@ over** goes back to the camera.
 If you would rather type the colours in, *Type the colours in instead* walks
 the same six-face route with a palette instead of a camera — one face at a
 time, with the same cube beside it saying which face you are on.
+
+## Academy mode
+
+**🎓 Teach me** solves the cube the way a person does, on the scramble you
+actually have, and tells you what it is doing:
+
+- **Seven stages, always seven** — bottom cross, bottom corners, middle layer,
+  top cross, top face, place the corners, last edges. A stage your cube arrives
+  with already done is shown as done rather than quietly dropped, because the
+  method has seven stages whether or not this particular cube needs them all.
+- **A lesson before each stage**: what you are trying to end up with, and —
+  the part every tutorial skips fastest — *what to look for on your own cube*
+  to spot the case you are in. Recognition is the thing that does not come from
+  following arrows.
+- **The algorithms by name**: Sune, Anti-Sune, the T-perm, the U-perm, the
+  corner three-cycle. Written out in notation with the turn you are on picked
+  out, and repeated for as many rounds as your cube needs. They are named
+  because they are named everywhere else — someone who learns "Sune" here can
+  ask about it anywhere.
+- You can jump between stages, switch to the short solution on the same cube
+  without rescanning, and switch back.
+
+It is about 110 moves against the fast solver's 20, and that is the trade: the
+short answer is unlearnable — its moves are not reasons — and the method is not
+short. `test/academy.test.js` checks the notation being shown is always the
+move actually being made, which is the one way this could teach the wrong
+thing convincingly.
+
+Academy is a 3×3 method. A 2×2 or a 4×4 gets the direct solution and is told
+why.
 
 Keep the cube in the same orientation the whole way through. After a scan there
 is nothing to line up at all: the cube on screen has been turned to match your
@@ -52,6 +84,16 @@ That is what the link at the top is.
 
 There is no backend, no API key and no account to sign up for. Everything —
 solving, scanning, reading the colors — happens in the browser.
+
+`sw.js` keeps a copy so the app runs with no signal at all. It is **network
+first**, deliberately the slower way round: for something published several
+times a day, a cache-first service worker is how people end up looking at
+yesterday's version and being told their own change did not land. Bump
+`VERSION` in it when the file list changes.
+
+`js/tpr.js` and `js/solver4.js` — 98KB of 4×4 solver between them — are not in
+the page. They are fetched the first time a 4×4 is actually solved, so a 3×3
+never pays for them.
 
 ## Testing changes on your phone (Tailscale)
 
@@ -114,7 +156,8 @@ survives; when more than one does, the app says so rather than guessing quietly.
 | --- | --- |
 | `js/cube.js` | Cube state: 54 facelets, the six moves as permutations, and a validator that explains *why* an impossible cube is impossible. |
 | `js/kociemba.js` | Two-phase solver. Builds ~4 MB of move and pruning tables, then runs two IDA\* searches. Typically 20 moves in ~250 ms. |
-| `js/solver.js` | Layer-by-layer beginner solver: bottom cross, bottom corners, middle edges, top cross, top face, place corners, last edges. **Not loaded by the app** — the "teach me" style it produced was a second question to answer before getting an answer, so the app now always takes the short solution. The module and its tests still stand on their own. |
+| `js/solver.js` | Layer-by-layer beginner solver: bottom cross, bottom corners, middle edges, top cross, top face, place corners, last edges. Every move it emits is tagged with the stage it belongs to and, on the last layer, the algorithm it came out of — which is what Academy mode is built on. |
+| `js/academy.js` | The teaching half: what each stage is for, what to look for to spot it, and the six algorithms under the names they go by everywhere else. |
 | `js/render.js` | A small software 3D renderer on a 2D canvas — 27 cubies, painter's algorithm, backface culling, animated layer turns and curved direction arrows. No WebGL, no libraries. |
 | `js/detect.js` | Finds the 3×3 grid in a photo: blob segmentation, a RANSAC-style lattice search, and a check that the seams are darker than the stickers. Runs in a few milliseconds, so it also drives the live outline. |
 | `js/assemble.js` | Names the colors against the six centres with a nine-per-color quota, then fits six unordered, arbitrarily-rotated faces into one cube by finding the arrangement that is physically possible. |
@@ -176,6 +219,11 @@ node test/solver.test.js 1000
   the six faces read off it rebuild the original exactly, at every size. Get
   this wrong and nothing complains: the colours simply land in the wrong
   places, and a different cube from yours gets solved, confidently.
+- `test/academy.test.js` — solves real scrambles and checks every stage and
+  algorithm that comes up has teaching attached, and that the move highlighted
+  in the notation strip is the move actually being made. A strip that says
+  `R U R' U R U2 R'` while the cube does something else teaches the wrong
+  thing, confidently, which is worse than no strip.
 
 ## Notes and limits
 

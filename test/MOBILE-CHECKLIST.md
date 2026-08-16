@@ -184,6 +184,46 @@ That is a claim about how it feels, and no test can check it.
       Larger Text turned up (Settings → Display & Brightness → Text Size), which
       is the setting most likely to break it.
 
+## 4a. Academy mode — the only part that can be wrong quietly
+
+The moves are checked by `test/academy.test.js`; whether any of it *teaches*
+is not checkable and is the whole point.
+
+- [ ] Scramble a cube you cannot solve, pick **🎓 Teach me**, and follow it to
+      the end without help. Could you? Where did you get stuck?
+- [ ] **The lesson before each stage.** Read one on the phone at arm's length.
+      Is "what to look for" enough to find the case on your own cube, or does
+      it describe something you cannot locate?
+- [ ] **The algorithm strip.** When it says Sune and highlights the third turn,
+      is the cube on screen doing that turn? Follow one algorithm through with
+      your eyes on the strip rather than the cube.
+- [ ] **Jump between stages** with the numbered dots. Are they big enough to
+      hit? Seven across a 375px screen is 44px each at best, and they are the
+      one control the automated suite exempts.
+- [ ] A stage your cube arrives with already done shows greyed out and cannot
+      be tapped. Does that read as "already done" or as "broken"?
+- [ ] **⚡ Just solve it** on the same cube, mid-way through a stage, then
+      **🎓 Teach me this one** back again. Both should re-solve from your
+      original scramble without another scan.
+- [ ] Do it twice on two scrambles. Second time round, did you need the cards
+      less? That is the only measure of this feature that matters.
+
+## 4b. New and untestable here
+
+- [ ] **The screen does not go out.** Follow a long solve without touching the
+      phone for a minute at a time. iOS 16.4 and later should hold it awake;
+      before that it will sleep and there is nothing to be done.
+- [ ] **Add to Home Screen**, open from there, and do a whole scan. Standalone
+      mode has different safe-area insets from a Safari tab and its own camera
+      permission prompt.
+- [ ] **Turn off wifi and data entirely, then open it from the home screen.**
+      It should work completely — scan, solve, teach. A 4×4 is the exception
+      worth testing separately: its solver is fetched on demand, so scan a 4×4
+      *offline* and check it still solves (the service worker should have it).
+- [ ] Publish a change, then open the app again. Do you get the new version?
+      Network-first says yes on the second load at worst. If you ever see a
+      stale one, `VERSION` in `sw.js` is the lever.
+
 ## 5. Safari itself
 
 None of this exists under emulation.

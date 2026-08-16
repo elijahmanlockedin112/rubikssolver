@@ -285,14 +285,39 @@
     while (!it.next().done) { /* run it straight through */ }
   }
 
-  /** Browser-friendly: builds in slices so the page can paint in between. */
+  /*
+   * Browser-friendly: builds in slices so the page can paint in between.
+   *
+   * One build at a time, however many people ask for it. The app starts these
+   * tables while the page is idle, so by the time a cube has been scanned they
+   * are usually done — and the two callers then overlap: the idle warm-up is
+   * half way through and the finished scan asks again. Two generators building
+   * the same four megabytes into the same arrays is wasted work at best, and
+   * the second one would report progress for a bar the first one is also
+   * driving. So a build in flight collects the later callers instead.
+   */
+  var waiting = null;
+
   function prepare(onProgress, onDone) {
     if (T.ready) { if (onDone) onDone(); return; }
+    if (waiting) {
+      waiting.push({ onProgress: onProgress, onDone: onDone });
+      return;
+    }
+    waiting = [{ onProgress: onProgress, onDone: onDone }];
     var it = buildTables();
     (function step() {
       var r = it.next();
-      if (r.done || T.ready) { if (onProgress) onProgress({ label: 'ready', progress: 1 }); if (onDone) onDone(); return; }
-      if (onProgress) onProgress(r.value);
+      var listeners = waiting;
+      if (r.done || T.ready) {
+        waiting = null;
+        listeners.forEach(function (w) {
+          if (w.onProgress) w.onProgress({ label: 'ready', progress: 1 });
+          if (w.onDone) w.onDone();
+        });
+        return;
+      }
+      listeners.forEach(function (w) { if (w.onProgress) w.onProgress(r.value); });
       setTimeout(step, 0);
     })();
   }

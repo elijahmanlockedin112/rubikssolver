@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Cube Coach">
+  <!--
+    The app icon: a cube seen square on, the way the solve screen draws it —
+    the front face flat and the top as a band above it. Drawn rather than
+    photographed, so it stays sharp from 32px to 512 and costs two kilobytes.
+
+    The bottom row is the accent colour, because one layer picked out against
+    the rest of the cube is what this app puts on screen more than anything
+    else. Nothing that matters goes outside the middle 80%, which is the safe
+    area a maskable icon gets cropped to.
+
+    Rebuild the PNGs beside it with: node tools/make-icons.js
+  -->
+  <rect width="512" height="512" rx="110" fill="#0e1015"/>
+  <g stroke="#14161c" stroke-width="7" stroke-linejoin="round">
+    <g fill="#f4f5f7">
+      <path d="M112 190 L200 190 L218 160 L130 160 Z"/>
+      <path d="M206 190 L294 190 L312 160 L224 160 Z"/>
+      <path d="M300 190 L388 190 L406 160 L318 160 Z"/>
+      <path d="M130 160 L218 160 L236 130 L148 130 Z"/>
+      <path d="M224 160 L312 160 L330 130 L242 130 Z"/>
+      <path d="M318 160 L406 160 L424 130 L336 130 Z"/>
+      <path d="M148 130 L236 130 L254 100 L166 100 Z"/>
+      <path d="M242 130 L330 130 L348 100 L260 100 Z"/>
+      <path d="M336 130 L424 130 L442 100 L354 100 Z"/>
+    </g>
+    <g fill="#00a651">
+      <rect x="112" y="190" width="88" height="88" rx="10"/>
+      <rect x="206" y="190" width="88" height="88" rx="10"/>
+      <rect x="300" y="190" width="88" height="88" rx="10"/>
+      <rect x="112" y="284" width="88" height="88" rx="10"/>
+      <rect x="206" y="284" width="88" height="88" rx="10"/>
+      <rect x="300" y="284" width="88" height="88" rx="10"/>
+    </g>
+    <g fill="#4c8dff">
+      <rect x="112" y="378" width="88" height="88" rx="10"/>
+      <rect x="206" y="378" width="88" height="88" rx="10"/>
+      <rect x="300" y="378" width="88" height="88" rx="10"/>
+    </g>
+  </g>
+</svg>

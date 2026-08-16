@@ -22,6 +22,7 @@
   var DEFAULT_FACE_COLOR = [0, 4, 2, 1, 5, 3]; // U R F D L B
 
   var STORE_KEY = 'rubiks-cube-coach.state';
+  var MODE_KEY = 'rubiks-cube-coach.mode';
 
   /*
    * How long one quarter turn takes on screen.
@@ -64,6 +65,25 @@
   var busy = false;
   var celebrated = false;
   var stopConfetti = null;
+
+  /*
+   * Which of the two roads out of the scanner this is.
+   *
+   *   fast    — Kociemba's answer, about 20 turns, none of which mean anything
+   *   academy — the layer-by-layer method, seven named stages, on your cube
+   *
+   * They are different solvers rather than different presentations, which is
+   * why this is a mode and not a checkbox: the shortest solution cannot be
+   * taught, because the moves in it are not reasons, and the beginner method
+   * cannot be raced, because it is four times longer.
+   */
+  var mode = 'fast';
+  var MODE_NOTE = {
+    fast: 'The shortest way home — about 20 turns, found by search.',
+    academy: 'Seven stages, taught on your own scramble. Longer, and you keep it.'
+  };
+  var introDone = {};     // stages whose lesson card has been read
+  var wakeLock = null;
 
   function solvedColorState() {
     var s = new Int8Array(stickerCount());
@@ -391,9 +411,49 @@
     });
   }
 
+  /**
+   * Fetch a script that is not in the page yet.
+   *
+   * tpr.js and solver4.js are 98KB of 4x4 solver between them, and a 3x3 — the
+   * overwhelming majority of what gets scanned — never touches a byte of it.
+   * Parsing that on every visit is a cost paid by everyone for a case most
+   * people do not have, so it is fetched the first time a 4x4 is solved
+   * instead. Everything else about a 4x4, including scanning one, works
+   * without it.
+   */
+  var loaded = {};
+  function loadScript(src, next, fail) {
+    if (loaded[src]) { next(); return; }
+    var el = document.createElement('script');
+    el.src = src;
+    el.onload = function () { loaded[src] = true; next(); };
+    el.onerror = function () { fail(); };
+    document.head.appendChild(el);
+  }
+
+  function withBigSolver(next) {
+    if (typeof Solver4 !== 'undefined') { next(); return; }
+    setMessage('Fetching the 4×4 solver…');
+    var fail = function () {
+      failTo('The 4×4 solver could not be fetched. Check the connection and try again — ' +
+        'everything else here works offline, but that part is only downloaded when it is needed.');
+    };
+    loadScript('js/tpr.js', function () { loadScript('js/solver4.js', next, fail); }, fail);
+  }
+
   function doSolve() {
+    /*
+     * Academy is a 3x3 method. There is no beginner method for a 4x4 that is
+     * not "reduce it to a 3x3 first", and nothing worth the name for a 2x2, so
+     * rather than pretend, those get the direct answer and are told why on the
+     * way past instead of finding out by being taught nothing.
+     */
+    if (mode === 'academy' && size !== 3) {
+      note = 'Academy teaches the 3×3 method, so a ' + size + '×' + size + ' gets the direct ' +
+        'solution instead. Switch to a 3×3 above to be taught it.';
+    }
     if (size === 2) { solveWith(Solver2, 'Working out the shortest solution…'); return; }
-    if (size === 4) { solveWith(Solver4, 'Working out a solution…'); return; }
+    if (size === 4) { withBigSolver(function () { solveWith(Solver4, 'Working out a solution…'); }); return; }
 
     // A cube that is nearly right is usually one sticker away from being right,
     // and "is this a real cube?" is a tight enough test to say which sticker.
@@ -428,6 +488,20 @@
     var solved = true;
     for (var i = 0; i < solverState.length; i++) if (solverState[i] !== Cube.SOLVED[i]) { solved = false; break; }
     if (solved) { showView('setup'); setMessage('That cube is already solved. Nothing to do!', 'ok'); return; }
+
+    /*
+     * The teaching solver runs in a couple of milliseconds — it is seven small
+     * searches, not one big one — so there is nothing to wait for and no
+     * table to build. It is the fast solver that needs the panel.
+     */
+    if (mode === 'academy') {
+      try {
+        finishSolve(Solver.solve(solverState), true);
+      } catch (err) {
+        failTo('Something went wrong working out how to teach that cube: ' + err.message);
+      }
+      return;
+    }
 
     setMessage('Searching for a short solution…');
     ensureFastSolver(function () {
@@ -516,11 +590,24 @@
   function expandHalfTurns(solution) {
     var perms = CubeN.of(size).MOVE_PERMS;
     var given = solution.states || null;
-    var out = { moves: [], steps: [], states: [] };
+    // the beginner solver hands back annotated steps; the fast one, bare moves
+    var src = solution.steps || solution.moves.map(function (m) { return { move: m }; });
+    var out = { moves: [], steps: [], states: [], groups: [] };
     out.states.push(Int8Array.from(given ? given[0] : colorState));
 
-    solution.moves.forEach(function (move, i) {
+    var reindex = [];   // original step number -> where it starts once expanded
+    src.forEach(function (step, i) {
+      reindex[i] = out.steps.length;
+      var move = step.move;
       var isHalf = move.indexOf('2') > 0;
+      /*
+       * Where this move sits in the algorithm it belongs to, worked out once
+       * here rather than at draw time. Both halves of a split half turn point
+       * at the same token — you are on the U2, doing the first half of it —
+       * which is the honest answer and keeps the notation strip matching the
+       * algorithm as it is written everywhere else.
+       */
+      var place = (typeof Academy !== 'undefined' && step.alg) ? Academy.placeInAlg(src, i) : null;
       var parts = isHalf ? [move.replace('2', ''), move.replace('2', '')] : [move];
       parts.forEach(function (part, k) {
         var last = out.states[out.states.length - 1];
@@ -528,20 +615,38 @@
           ? Int8Array.from(given[i + 1])
           : permuteInto(last, perms[part]);
         out.moves.push(part);
-        out.steps.push({ move: part, half: isHalf ? k + 1 : 0 });
+        out.steps.push({
+          move: part,
+          half: isHalf ? k + 1 : 0,
+          stage: step.stage || null,
+          place: place
+        });
         out.states.push(next);
+      });
+    });
+    reindex[src.length] = out.steps.length;
+
+    // stage boundaries have to move with the moves they bracket
+    (solution.groups || []).forEach(function (g) {
+      out.groups.push({
+        id: g.id, title: g.title, blurb: g.blurb,
+        start: reindex[g.start],
+        count: reindex[g.start + g.count] - reindex[g.start]
       });
     });
     return out;
   }
 
-  function finishSolve(solution) {
+  function finishSolve(solution, teaching) {
     plan = expandHalfTurns(solution);
+    plan.teaching = !!teaching;
     setMessage('');
     $('repair-note').textContent = note || '';
     $('repair-note').hidden = !note;
     index = 0;
+    introDone = {};
     endCelebration();
+    buildStageStrip();
     showView('solve');
     applyIndex();
   }
@@ -551,14 +656,43 @@
     $('view-edit').hidden = which !== 'edit';
     $('view-solve').hidden = which !== 'solve';
     document.body.classList.toggle('solving', which === 'solve');
-    if (which === 'solve') { solveFront.dirty = true; }
-    else {
+    if (which === 'solve') {
+      solveFront.dirty = true;
+      keepAwake(true);
+    } else {
       previewFront.dirty = true;
       previewBack.dirty = true;
       voice.stop();
       endCelebration();
+      keepAwake(false);
     }
     if (which === 'edit') fitNet();
+  }
+
+  /*
+   * Don't let the screen go out mid-solve.
+   *
+   * A hundred and twelve moves at a second each, with both hands on a cube and
+   * nothing to tap, is exactly the shape of activity a phone reads as "asleep".
+   * Waking it up and finding your place again, twice a stage, is the sort of
+   * thing that makes people put the cube down.
+   *
+   * The lock is dropped the moment the solve screen is left, and re-taken if
+   * the tab comes back — a wake lock is released automatically when a page is
+   * hidden and is not restored on its own. Anything without the API (which was
+   * every iPhone before 16.4) simply does without.
+   */
+  function keepAwake(on) {
+    if (!navigator.wakeLock) return;
+    if (!on) {
+      if (wakeLock) { wakeLock.release().catch(function () { /* already gone */ }); wakeLock = null; }
+      return;
+    }
+    if (wakeLock) return;
+    navigator.wakeLock.request('screen').then(function (lock) {
+      wakeLock = lock;
+      lock.addEventListener('release', function () { wakeLock = null; });
+    }).catch(function () { /* refused: low battery, or not allowed here */ });
   }
 
   // ---- the guided map ----------------------------------------------------
@@ -602,6 +736,137 @@
     updateEditChrome();
   }
 
+  // ---- academy -----------------------------------------------------------
+
+  function teaching() { return !!(plan && plan.teaching && plan.groups && plan.groups.length); }
+
+  /**
+   * The method's seven stages, whether or not this cube needed all of them.
+   *
+   * A scramble can arrive with a stage already done — the top cross falls into
+   * place surprisingly often — and the solver then emits no moves for it, so
+   * the solution has six groups. Numbering from the solution would call that
+   * "stage 5 of 6", which teaches a method that does not exist. The strip is
+   * always the seven, and a stage with nothing to do is shown as done, which
+   * is both true and the more useful thing to know.
+   */
+  function stagePlan() {
+    var groups = {};
+    (plan.groups || []).forEach(function (g) { groups[g.id] = g; });
+    return Academy.STAGES.map(function (s, i) {
+      return { id: s.id, number: i + 1, title: s.title, group: groups[s.id] || null };
+    });
+  }
+
+  /** Which stage `index` falls in. */
+  function currentStage() {
+    if (!teaching()) return null;
+    var stages = stagePlan(), found = null;
+    stages.forEach(function (s) {
+      if (s.group && index >= s.group.start) found = s;
+    });
+    return found || stages.filter(function (s) { return s.group; })[0] || null;
+  }
+
+  /*
+   * The seven stages as a row of dots: done, here, still to come — and a way
+   * back into any of them. Being able to see the shape of the method before
+   * you are half way through it is most of what makes it feel learnable
+   * rather than endless.
+   */
+  function buildStageStrip() {
+    var strip = $('stage-strip');
+    strip.innerHTML = '';
+    strip.hidden = !teaching();
+    if (!teaching()) return;
+    stagePlan().forEach(function (s) {
+      var dot = document.createElement('button');
+      dot.className = 'stage-dot' + (s.group ? '' : ' is-free');
+      dot.type = 'button';
+      dot.dataset.stage = s.id;
+      dot.textContent = String(s.number);
+      var label = 'Stage ' + s.number + ': ' + s.title +
+        (s.group ? '' : ' — already done on this cube');
+      dot.setAttribute('aria-label', label);
+      dot.title = label;
+      dot.disabled = !s.group;
+      if (s.group) dot.addEventListener('click', function () { jumpToStage(s.group); });
+      strip.appendChild(dot);
+    });
+  }
+
+  function updateStageStrip() {
+    if (!teaching()) return;
+    var here = currentStage();
+    var stages = stagePlan();
+    var dots = $('stage-strip').children;
+    for (var i = 0; i < dots.length; i++) {
+      var s = stages[i];
+      // a stage with no moves was already done when the cube arrived
+      var done = !s.group || index >= s.group.start + s.group.count;
+      dots[i].classList.toggle('is-done', done);
+      dots[i].classList.toggle('is-here', !!here && here.id === s.id && index < plan.steps.length);
+    }
+  }
+
+  function jumpToStage(g) {
+    if (busy || !plan) return;
+    endCelebration();
+    index = g.start;
+    delete introDone[g.id];   // arriving at a stage is arriving at its lesson
+    applyIndex();
+  }
+
+  /**
+   * True when the card should be showing the lesson rather than a move.
+   *
+   * You get one of these on the way into each stage: what it is for, what to
+   * look for on your own cube, and only then the moves. It is the difference
+   * between being taught and being led — the moves alone teach nothing, which
+   * is exactly the complaint about every "solve it in 20 moves" answer.
+   */
+  function atStageIntro() {
+    if (!teaching() || index >= plan.steps.length) return false;
+    var here = currentStage();
+    return !!here && !!here.group && index === here.group.start && !introDone[here.id];
+  }
+
+  function showStageIntro(here) {
+    var lesson = Academy.stage(here.id) || {};
+    $('stage-line').hidden = false;
+    $('stage-line').textContent = 'Stage ' + here.number + ' of ' + Academy.STAGES.length;
+    $('move-title').textContent = lesson.title || here.group.title;
+    $('move-detail').textContent = lesson.goal || here.group.blurb || '';
+    $('academy-note').hidden = false;
+    $('academy-note').textContent = lesson.look || '';
+    $('alg-strip').hidden = true;
+    $('btn-next').textContent = 'Start this stage ›';
+    solveFront.showArrowFor = null;
+  }
+
+  /** The algorithm being run, its notation, and where in it you are. */
+  function showAlgStrip(step) {
+    var strip = $('alg-strip');
+    var place = step.place;
+    if (!place || !place.alg) { strip.hidden = true; return; }
+    strip.hidden = false;
+    strip.innerHTML = '';
+
+    var name = document.createElement('span');
+    name.className = 'alg-name';
+    name.textContent = place.rounds > 1
+      ? place.alg.name + ' · ' + place.round + ' of ' + place.rounds
+      : place.alg.name;
+    strip.appendChild(name);
+
+    place.alg.notation.split(/\s+/).forEach(function (token, i) {
+      var el = document.createElement('span');
+      el.className = 'alg-move' + (i === place.at ? ' is-now' : '');
+      el.textContent = token;
+      strip.appendChild(el);
+    });
+  }
+
   // ---- player ------------------------------------------------------------
 
   function applyIndex() {
@@ -610,58 +875,108 @@
     var atEnd = index >= total;
     solveFront.setState(plan.states[index]);
 
-    var upcoming = atEnd ? null : plan.steps[index].move;
+    var here = currentStage();
+    var intro = atStageIntro();
+    var upcoming = (atEnd || intro) ? null : plan.steps[index].move;
     solveFront.showArrowFor = upcoming;
     solveFront.dirty = true;
 
+    $('stage-line').hidden = true;
+    $('academy-note').hidden = true;
+    $('alg-strip').hidden = true;
+    $('btn-next').textContent = 'Next ›';
+
     if (atEnd) {
       $('move-title').textContent = 'Solved!';
-      $('move-detail').textContent = 'Every face should now be a single colour. ' + total + ' moves. Nice work.';
+      $('move-detail').textContent = teaching()
+        ? 'That is the whole method — all seven stages, on your own scramble. ' + total +
+          ' moves. Do it again on a fresh scramble and you will need the cards less each time.'
+        : 'Every face should now be a single colour. ' + total + ' moves. Nice work.';
       celebrate();
+    } else if (intro) {
+      showStageIntro(here);
     } else {
-      var d = describe(plan.steps[index]);
+      var step = plan.steps[index];
+      var d = describe(step);
       $('move-title').textContent = d.title;
       $('move-detail').textContent = d.detail;
+      if (teaching() && here) {
+        var lesson = Academy.stage(here.id);
+        $('stage-line').hidden = false;
+        $('stage-line').textContent = 'Stage ' + here.number + ' of ' + Academy.STAGES.length + ' · ' +
+          ((lesson && lesson.title) || here.title);
+        if (step.place && step.place.alg) {
+          showAlgStrip(step);
+        } else if (lesson) {
+          $('academy-note').hidden = false;
+          $('academy-note').textContent = lesson.look;
+        }
+      }
     }
 
     $('move-counter').textContent = atEnd ? 'Done' : 'Move ' + (index + 1) + ' of ' + total;
     // a cube that was already solved has no moves at all, and 0/0 is not a width
     $('progress-fill').style.width = (total ? 100 * index / total : 100).toFixed(1) + '%';
     $('btn-prev').disabled = index === 0;
-    $('btn-replay').disabled = index === 0;
+    $('btn-replay').disabled = index === 0 || intro;
     $('btn-next').disabled = atEnd;
     $('btn-restart').textContent = atEnd ? '↻ Scan another cube' : 'Not solved? Start over';
     // both classes set the background, and .btn-ghost is declared later, so it
     // wins whenever it is left on — the button stayed an outline at the end
     $('btn-restart').classList.toggle('btn-primary', atEnd);
     $('btn-restart').classList.toggle('btn-ghost', !atEnd);
+    $('btn-mode').textContent = teaching() ? '⚡ Just solve it' : '🎓 Teach me this one';
+    updateStageStrip();
   }
 
   function stepForward() {
     if (busy || !plan || index >= plan.steps.length) return;
+    // the lesson card is a step of its own: read it, then start the stage
+    if (atStageIntro()) {
+      introDone[currentStage().id] = true;
+      applyIndex();
+      return;
+    }
     var move = plan.steps[index].move;
     busy = true;
     solveFront.showArrowFor = null;
     solveFront.playMove(move, MOVE_MS, function () {
       index++;
       busy = false;
+      buzz();
       applyIndex();
     });
   }
 
   function stepBack() {
-    if (busy || !plan || index === 0) return;
+    if (busy || !plan) return;
     endCelebration();
+    // step back out of a lesson card into the last move of the stage before it
+    if (atStageIntro() && index > 0) { introDone[currentStage().id] = true; }
+    if (index === 0) { applyIndex(); return; }
     index--;
     applyIndex();
   }
 
   function replayCurrent() {
-    if (busy || !plan || index === 0) return;
+    if (busy || !plan || index === 0 || atStageIntro()) return;
     endCelebration();
     index--;
     applyIndex();
     stepForward();
+  }
+
+  /**
+   * A short buzz as a move lands, where the hardware has one.
+   *
+   * Your eyes are on the cube, not the phone, so the moment a turn finishes is
+   * the one piece of feedback that is hard to get any other way. Android and
+   * Chrome have it; iOS Safari has never supported the Vibration API and
+   * ignores this entirely.
+   */
+  function buzz() {
+    if (Celebrate.reducedMotion()) return;
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) { /* not allowed */ } }
   }
 
   // ---- the end of it -----------------------------------------------------
@@ -831,6 +1146,16 @@
     $('btn-prev').addEventListener('click', stepBack);
     $('btn-replay').addEventListener('click', replayCurrent);
 
+    document.querySelectorAll('.mode-option').forEach(function (button) {
+      button.addEventListener('click', function () { setMode(button.dataset.mode); });
+    });
+    // and the same switch from the solve screen, on the cube already in hand
+    $('btn-mode').addEventListener('click', function () {
+      setMode(teaching() ? 'fast' : 'academy');
+      note = null;
+      doSolve();
+    });
+
     if (CubeVoice.supported()) {
       $('btn-voice').hidden = false;
       $('btn-voice').addEventListener('click', function () { voice.toggle(); });
@@ -860,13 +1185,67 @@
     window.addEventListener('orientationchange', function () { setTimeout(fitNet, 250); });
   }
 
+  function setMode(next) {
+    mode = next === 'academy' ? 'academy' : 'fast';
+    document.querySelectorAll('.mode-option').forEach(function (b) {
+      b.classList.toggle('is-active', b.dataset.mode === mode);
+      b.setAttribute('aria-pressed', b.dataset.mode === mode ? 'true' : 'false');
+    });
+    $('mode-note').textContent = MODE_NOTE[mode];
+    try { localStorage.setItem(MODE_KEY, mode); } catch (e) { /* private mode */ }
+  }
+
+  /*
+   * Build the fast solver's tables before anyone asks for them.
+   *
+   * Four megabytes of move and pruning tables take a couple of seconds on a
+   * phone, and they were being built at the worst possible moment: the second
+   * after a scan finishes, when the answer is the only thing anyone wants. The
+   * page is idle long before that — reading the home screen, holding a cube up
+   * to a camera — so this uses that time instead, and the panel that used to
+   * appear now usually does not.
+   *
+   * requestIdleCallback keeps it out of the way of anything the user is doing;
+   * Safari only got it in 16.4, so the fallback is a plain delay. Either way
+   * the build itself yields between slices, and a second caller arriving mid
+   * build now waits on the first rather than starting another.
+   */
+  function prewarm() {
+    if (typeof Kociemba === 'undefined' || Kociemba.isReady()) return;
+    var idle = window.requestIdleCallback || function (fn) { return setTimeout(fn, 1500); };
+    idle(function () { Kociemba.prepare(null, function () { /* ready when it is */ }); });
+  }
+
+  /*
+   * Keep a copy of the app, so it works with no signal.
+   *
+   * Everything here already runs on the device; the only thing needing a
+   * network was fetching the files. sw.js is network-first, so what you get
+   * online is always what was published and what you get offline is the last
+   * thing that was. Registered late and quietly — a failure here costs
+   * offline support and nothing else, which is not worth a message.
+   */
+  function keepACopy() {
+    if (!navigator.serviceWorker || location.protocol === 'file:') return;
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () { /* no offline, then */ });
+    });
+  }
+
   // ---- boot --------------------------------------------------------------
 
   load();
+  try {
+    var savedMode = localStorage.getItem(MODE_KEY);
+    if (savedMode) mode = savedMode;
+  } catch (e) { /* private mode */ }
+  setMode(mode);
   buildPalette();
   updateHoldText();
   buildFace();
   refreshNet();
   refreshViews();
   wire();
+  prewarm();
+  keepACopy();
 })();

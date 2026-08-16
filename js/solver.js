@@ -129,6 +129,17 @@
 
   // ---- macro search (last layer) -----------------------------------------
 
+  /**
+   * Search over (line the top layer up, run an algorithm) pairs.
+   *
+   * `algs` are `{ id, moves }`, and every move that came out of one is handed
+   * back tagged with that id — a plain setup turn is tagged null. Nothing in
+   * the solving needs that; the teaching mode does. "Run this algorithm, and
+   * here is where you are in it" is the whole of what a person learns on the
+   * last layer, and it cannot be recovered from a flat list of moves after the
+   * fact: the same seven turns appear for other reasons, and a cancellation
+   * can shave a move off either end.
+   */
   function macroSearch(state, algs, goal, maxRounds) {
     var UT = ['', 'U', "U'", 'U2'];
     for (var rounds = 0; rounds <= maxRounds; rounds++) {
@@ -137,20 +148,25 @@
     }
     return null;
 
+    function tagged(moves, id) {
+      return moves.map(function (m) { return { move: m, alg: id }; });
+    }
+
     function rec(s, rounds, path) {
       var i, s2;
       if (rounds === 0) {
         for (i = 0; i < 4; i++) {
           s2 = UT[i] ? Cube.apply(s, UT[i]) : s;
-          if (goal(s2)) return UT[i] ? path.concat([UT[i]]) : path;
+          if (goal(s2)) return UT[i] ? path.concat(tagged([UT[i]], null)) : path;
         }
         return null;
       }
       for (i = 0; i < 4; i++) {
         s2 = UT[i] ? Cube.apply(s, UT[i]) : s;
         for (var a = 0; a < algs.length; a++) {
-          var s3 = Cube.applySeq(s2, algs[a]);
-          var head = UT[i] ? path.concat([UT[i]], algs[a]) : path.concat(algs[a]);
+          var s3 = Cube.applySeq(s2, algs[a].moves);
+          var body = tagged(algs[a].moves, algs[a].id);
+          var head = UT[i] ? path.concat(tagged([UT[i]], null), body) : path.concat(body);
           var r = rec(s3, rounds - 1, head);
           if (r) return r;
         }
@@ -163,13 +179,17 @@
 
   function solve(startState) {
     var s = Uint8Array.from(startState);
-    var steps = [];      // { move, stage }
+    var steps = [];      // { move, stage, alg }
     var stage = 'cross';
 
+    // Takes either plain move strings or the { move, alg } pairs macroSearch
+    // hands back, so the first-layer searches need to know nothing about tags.
     function run(moves) {
       for (var i = 0; i < moves.length; i++) {
-        s = Cube.apply(s, moves[i]);
-        steps.push({ move: moves[i], stage: stage });
+        var m = moves[i];
+        var name = typeof m === 'string' ? m : m.move;
+        s = Cube.apply(s, name);
+        steps.push({ move: name, stage: stage, alg: typeof m === 'string' ? null : m.alg });
       }
     }
 
@@ -326,7 +346,7 @@
       return true;
     }
     if (!topCrossDone(s)) {
-      var p4 = macroSearch(s, [FRUR], topCrossDone, 4);
+      var p4 = macroSearch(s, [{ id: 'fruruf', moves: FRUR }], topCrossDone, 4);
       if (!p4) throw new Error('Top cross search failed.');
       run(p4);
     }
@@ -342,7 +362,7 @@
       return true;
     }
     if (!topFaceDone(s)) {
-      var p5 = macroSearch(s, [SUNE, ANTISUNE], topFaceDone, 3);
+      var p5 = macroSearch(s, [{ id: 'sune', moves: SUNE }, { id: 'antisune', moves: ANTISUNE }], topFaceDone, 3);
       if (!p5) throw new Error('Top face search failed.');
       run(p5);
     }
@@ -361,7 +381,7 @@
       return true;
     }
     if (!topCornersPlaced(s)) {
-      var p6 = macroSearch(s, [NIKLAS, TPERM], topCornersPlaced, 3);
+      var p6 = macroSearch(s, [{ id: 'niklas', moves: NIKLAS }, { id: 'tperm', moves: TPERM }], topCornersPlaced, 3);
       if (!p6) throw new Error('Top corner placement search failed.');
       run(p6);
     }
@@ -370,7 +390,7 @@
     stage = 'topedges';
     var UPERM = Cube.parse("R U' R U R U R U' R' U' R2"); // pure edge 3-cycle
     if (!Cube.isSolved(s)) {
-      var p7 = macroSearch(s, [UPERM], Cube.isSolved, 4);
+      var p7 = macroSearch(s, [{ id: 'uperm', moves: UPERM }], Cube.isSolved, 4);
       if (!p7) throw new Error('Last-edge search failed.');
       run(p7);
     }
@@ -397,11 +417,23 @@
     while (changed) {
       changed = false;
       for (var i = 0; i < out.length - 1; i++) {
+        /*
+         * An algorithm is left exactly as it is written.
+         *
+         * Cancelling two adjacent turns of the same face shortens the answer,
+         * and for a list of moves to copy that is free. For a list of moves to
+         * *learn* it is not: the teaching mode names the algorithm and shows
+         * its notation with your place in it, and an algorithm whose last turn
+         * has been folded into the next setup no longer matches the one being
+         * named. Costs a few moves; buys a solution that is the thing it says
+         * it is.
+         */
+        if (out[i].alg || out[i + 1].alg) continue;
         if (out[i].move[0] === out[i + 1].move[0]) {
           var amt = amount(out[i].move) + amount(out[i + 1].move);
           var merged = moveName(out[i].move[0], amt);
           if (merged === null) out.splice(i, 2);
-          else out.splice(i, 2, { move: merged, stage: out[i].stage });
+          else out.splice(i, 2, { move: merged, stage: out[i].stage, alg: null });
           changed = true;
           break;
         }
