@@ -1,5 +1,10 @@
 /*
- * app.js — wiring: the sticker editor, validation, and the guided player.
+ * app.js — wiring: the three screens, the sticker editor, and the move player.
+ *
+ * The shape of the app is: scan, then follow the moves. Scanning is the front
+ * door and everything else is a fallback, so the home screen is a cube, a size,
+ * and one button. A finished scan does not stop to ask anything — it solves and
+ * goes straight to the first move.
  */
 (function () {
   'use strict';
@@ -14,6 +19,17 @@
   var STORE_KEY = 'rubiks-cube-coach.state';
 
   /*
+   * How long one quarter turn takes on screen.
+   *
+   * Slow on purpose. This is watched with a cube in one hand, and the thing
+   * being read off it is which way a layer went — a turn fast enough to look
+   * good is a turn you have to replay. Every half turn is split into two of
+   * these (see expandHalfTurns), because a 180° spin has no direction to read
+   * and both halves of it happen too fast to follow.
+   */
+  var MOVE_MS = 1100;
+
+  /*
    * The cube's size has to be settled before anything asks how big a cube is.
    *
    * `solvedColorState()` sizes itself from `size`, so if `size` is still being
@@ -25,7 +41,7 @@
    * said every sticker still needed a colour. Switching size and back fixed it,
    * because that rebuilds the array with `size` set by then.
    */
-  var size = 3;                      // 3 for a 3x3, 4 for a 4x4
+  var size = 3;                      // 2, 3 or 4
   function perFace() { return size * size; }
   function stickerCount() { return 6 * perFace(); }
 
@@ -33,25 +49,14 @@
   var selectedColor = 0;
   var painting = false;
   var unsure = {};   // facelets worth a second look before solving
-  var repairNote = null;   // what an automatic correction changed, if anything
+  var note = null;   // what to say at the top of the solve screen, if anything
   // True when the cube on screen has been turned to match the last photo, so
   // the moves already suit how it is being held and there is nothing to line up.
   var orientedFromScan = false;
 
-  var result = null;      // solver output
-  var colorStates = [];   // display state after each move
+  var plan = null;        // { moves, states } after expanding half turns
   var index = 0;
-  var playing = false;
   var busy = false;
-  var playTimer = null;
-
-  var SPEEDS = [
-    { move: 900, gap: 450 },
-    { move: 640, gap: 300 },
-    { move: 440, gap: 180 },
-    { move: 300, gap: 110 },
-    { move: 190, gap: 60 }
-  ];
 
   function solvedColorState() {
     var s = new Int8Array(stickerCount());
@@ -63,16 +68,33 @@
 
   // ---- views -------------------------------------------------------------
 
+  /*
+   * Square on, not off a corner.
+   *
+   * The old camera sat off a corner so three faces showed at once, which is
+   * more of the cube but a harder picture to match against the thing in your
+   * hands: every face is a skewed parallelogram and the layer that is about to
+   * turn runs diagonally away from you. Straight on, the front face is a
+   * square, the top is a shallow band above it, and a turn reads as up, down,
+   * left or right — the same words the instructions use.
+   */
+  var FRONT_VIEW = { yaw: 0, pitch: 30 };
+  var BACK_VIEW = { yaw: 180, pitch: -30 };
+
   var previewFront = new CubeView($('preview-front'), {
-    colors: PALETTE, state: colorState,
+    colors: PALETTE, state: colorState, yaw: FRONT_VIEW.yaw, pitch: FRONT_VIEW.pitch,
     onStickerPick: function (facelet) { paint(facelet); }
   });
   var previewBack = new CubeView($('preview-back'), {
-    colors: PALETTE, state: colorState, yaw: 146, pitch: -26,
+    colors: PALETTE, state: colorState, yaw: BACK_VIEW.yaw, pitch: BACK_VIEW.pitch,
     onStickerPick: function (facelet) { paint(facelet); }
   });
-  var solveFront = new CubeView($('solve-front-canvas'), { colors: PALETTE, state: colorState });
-  var solveBack = new CubeView($('solve-back-canvas'), { colors: PALETTE, state: colorState, yaw: 146, pitch: -26 });
+  var solveFront = new CubeView($('solve-front-canvas'), {
+    colors: PALETTE, state: colorState, yaw: FRONT_VIEW.yaw, pitch: FRONT_VIEW.pitch
+  });
+  var solveBack = new CubeView($('solve-back-canvas'), {
+    colors: PALETTE, state: colorState, yaw: BACK_VIEW.yaw, pitch: BACK_VIEW.pitch
+  });
 
   function refreshViews() {
     [previewFront, previewBack].forEach(function (v) { v.setState(colorState); });
@@ -106,14 +128,14 @@
     wrap.appendChild(eraser);
   }
 
-  // face -> position in the 4x3 net grid
+  // face -> where it sits in the map, in reading order
   var NET_SLOTS = [
-    { face: 0, col: 2, row: 1, label: 'Up' },
-    { face: 4, col: 1, row: 2, label: 'Left' },
-    { face: 2, col: 2, row: 2, label: 'Front' },
-    { face: 1, col: 3, row: 2, label: 'Right' },
-    { face: 5, col: 4, row: 2, label: 'Back' },
-    { face: 3, col: 2, row: 3, label: 'Down' }
+    { face: 0, label: 'Up' },
+    { face: 4, label: 'Left' },
+    { face: 2, label: 'Front' },
+    { face: 1, label: 'Right' },
+    { face: 5, label: 'Back' },
+    { face: 3, label: 'Down' }
   ];
 
   function buildNet() {
@@ -125,14 +147,6 @@
     NET_SLOTS.forEach(function (slot) {
       var holder = document.createElement('div');
       holder.className = 'face-slot';
-      /*
-       * Custom properties rather than grid-column/grid-row directly: an inline
-       * style beats a stylesheet, and a phone in portrait drops the cross for
-       * two faces per row. Handing the numbers over as properties lets the
-       * media query say `grid-column: auto` and be listened to.
-       */
-      holder.style.setProperty('--col', slot.col);
-      holder.style.setProperty('--row', slot.row);
 
       var label = document.createElement('span');
       label.className = 'face-label';
@@ -160,7 +174,48 @@
       holder.appendChild(face);
       net.appendChild(holder);
     });
-    document.addEventListener('pointerup', function () { painting = false; });
+    fitNet();
+  }
+
+  /*
+   * Size the map to the box it has, rather than hoping.
+   *
+   * Six faces at 4x4 is 96 stickers, and there is no fixed arrangement of them
+   * that fits every phone in both orientations: a cross needs four faces of
+   * width, two columns need three faces of height, and a landscape phone has
+   * 343px of height in total. So both arrangements are measured against the
+   * actual box and the one with the bigger sticker wins. This is what keeps the
+   * whole map on screen without the page scrolling.
+   */
+  var lastFit = '';
+  function fitNet() {
+    var box = document.querySelector('.net-fit');
+    var net = $('net');
+    if (!box || !net) return;
+    var w = box.clientWidth, h = box.clientHeight;
+    if (!w || !h) return;
+    /*
+     * Same box, same answer, and skipping it is not just a saving: the box is
+     * watched by a ResizeObserver below, and refitting on every notification —
+     * including the one the fit itself provokes — is how that turns into a
+     * loop.
+     */
+    var key = w + 'x' + h + ':' + size;
+    if (key === lastFit) return;
+    lastFit = key;
+
+    var COL_GAP = 10, ROW_GAP = 18, LABEL = 13;
+    var best = null;
+    [[2, 3], [3, 2]].forEach(function (opt) {
+      var cols = opt[0], rows = opt[1];
+      var byWidth = (w - (cols - 1) * COL_GAP) / cols;
+      var byHeight = (h - (rows - 1) * ROW_GAP - rows * LABEL) / rows;
+      var face = Math.min(byWidth, byHeight);
+      if (!best || face > best.face) best = { cols: cols, face: face };
+    });
+
+    net.style.setProperty('--net-cols', best.cols);
+    net.style.setProperty('--net-face', Math.max(48, Math.floor(best.face)) + 'px');
   }
 
   // A 3x3's centre sticker is bolted to the core and never moves, so the editor
@@ -197,8 +252,8 @@
     colorState = solvedColorState();
     unsure = {};
     orientedFromScan = false;
-    repairNote = null;
-    result = null;
+    note = null;
+    plan = null;
     [previewFront, previewBack, solveFront, solveBack].forEach(function (v) { v.setSize(size); });
     buildNet();
     refreshNet();
@@ -207,22 +262,9 @@
     document.querySelectorAll('.size-option').forEach(function (b) {
       b.classList.toggle('is-active', +b.dataset.size === size);
     });
-    /*
-     * The two solution styles are a 3x3 thing. A 2x2 is small enough that the
-     * shortest answer is the only sensible one, and a 4x4 is big enough that
-     * reduction is the only practical method — so on those the choice is not a
-     * choice, and leaving it up said "About 20 moves" on a cube that takes 55.
-     */
-    $('modes').hidden = size !== 3;
     // Only a 3x3 has centre stickers that never move, so only a 3x3 has centres
     // to unlock. On the others the toggle governs nothing.
     $('centres-toggle').hidden = size !== 3;
-    $('size-note').textContent = size === 3
-      ? 'Scan or type it in. Two solution styles: short, or one you could learn.'
-      : size === 2
-        ? 'Always the shortest solution that exists — never more than 11 moves.'
-        : 'About 45 turns, found by search. Scanning, the map and solving all work.';
-    showView('setup');
     setMessage('');
     save();
   }
@@ -230,12 +272,10 @@
   /**
    * Say how to hold the cube, in whatever terms actually apply.
    *
-   * Three different situations, and the old wording only covered one:
+   * Three different situations, and one wording only covers one:
    *
    *   - Just scanned. The cube has been turned to match the last photo, so it
-   *     is already being held right and there is nothing to look for. Say that,
-   *     because hunting for a colour to line up was the most tedious part of
-   *     using this.
+   *     is already being held right and there is nothing to look for.
    *   - Typed in, 3x3. The centres name the faces, so name them.
    *   - Typed in, 2x2 or 4x4. Nothing names a face — the middle pieces move —
    *     so the map is the only reference there is, and it says so.
@@ -243,15 +283,14 @@
   function updateHoldLabels() {
     var setup = $('hold-note'), solving = $('orientation-note-text');
     if (orientedFromScan) {
-      var text = 'Hold the cube exactly as you did for your last photo — that face is the ' +
-        'one facing you here. Nothing to line up.';
+      var text = 'Hold the cube exactly as you did for your last photo — nothing to line up.';
       setup.textContent = text;
       solving.textContent = text;
       return;
     }
     if (size !== 3) {
-      var mapText = 'A ' + size + '×' + size + ' has no fixed centre to go by, so the map is the ' +
-        'reference: hold the cube so it matches the Front panel, with Up on top.';
+      var mapText = 'A ' + size + '×' + size + ' has no fixed centre, so the map is the reference: ' +
+        'hold the cube to match the Front panel, with Up on top.';
       setup.textContent = mapText;
       solving.textContent = mapText;
       return;
@@ -261,7 +300,7 @@
     var frontName = front < 0 ? 'the front' : COLOR_NAMES[front];
     setup.textContent = 'Hold your cube with the ' + topName + ' centre on top and the ' +
       frontName + ' centre facing you, then fill in every sticker to match.';
-    solving.textContent = 'Keep ' + topName + ' on top and ' + frontName + ' facing you for every move.';
+    solving.textContent = 'Keep ' + topName + ' on top and ' + frontName + ' facing you.';
   }
 
   // ---- persistence -------------------------------------------------------
@@ -283,10 +322,18 @@
 
   // ---- messages ----------------------------------------------------------
 
+  /*
+   * The same sentence on whichever screen you are on. Scanning is started from
+   * the home screen and solving from the map, and either can be the one with
+   * something to say, so both carry the line.
+   */
   function setMessage(text, kind) {
-    var el = $('setup-message');
-    el.textContent = text || '';
-    el.className = 'message' + (kind ? ' ' + kind : '');
+    ['setup-message', 'edit-message'].forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      el.textContent = text || '';
+      el.className = 'message' + (kind ? ' ' + kind : '');
+    });
   }
 
   // ---- plain-english move descriptions -----------------------------------
@@ -294,50 +341,38 @@
   var MOVE_TEXT = {
     'U': ['Top layer', 'Spin the top layer so the front row slides to your LEFT.'],
     "U'": ['Top layer', 'Spin the top layer so the front row slides to your RIGHT.'],
-    'U2': ['Top layer', 'Spin the top layer half way around (either direction).'],
     'D': ['Bottom layer', 'Spin the bottom layer so the front row slides to your RIGHT.'],
     "D'": ['Bottom layer', 'Spin the bottom layer so the front row slides to your LEFT.'],
-    'D2': ['Bottom layer', 'Spin the bottom layer half way around (either direction).'],
     'R': ['Right face', 'Turn the right face so its front edge lifts UP toward the top.'],
     "R'": ['Right face', 'Turn the right face so its front edge drops DOWN toward the bottom.'],
-    'R2': ['Right face', 'Turn the right face half way around (either direction).'],
     'L': ['Left face', 'Turn the left face so its front edge drops DOWN toward the bottom.'],
     "L'": ['Left face', 'Turn the left face so its front edge lifts UP toward the top.'],
-    'L2': ['Left face', 'Turn the left face half way around (either direction).'],
     'F': ['Front face', 'Turn the whole front face clockwise — its top row slides RIGHT.'],
     "F'": ['Front face', 'Turn the whole front face counter-clockwise — its top row slides LEFT.'],
-    'F2': ['Front face', 'Turn the front face half way around (either direction).'],
     'B': ['Back face', 'Turn the back face so its top row slides to your LEFT.'],
     "B'": ['Back face', 'Turn the back face so its top row slides to your RIGHT.'],
-    'B2': ['Back face', 'Turn the back face half way around (either direction).'],
 
     // A 4x4 also turns the layers just under each face. These never came up on
     // a 3x3, so they had no entry — and describe() read [0] off the missing one
     // and threw, inside the render loop's callback, which killed the loop for
     // good. One cube froze mid-solution while the other carried on moving.
-    'u': ['Second layer from the top', 'Turn the slice just UNDER the top layer the same way you would turn the top: the front of it slides to your LEFT. The top layer itself does not move.'],
+    'u': ['Second layer from the top', 'Turn the slice just UNDER the top layer the way you would turn the top: its front slides to your LEFT. The top layer itself does not move.'],
     "u'": ['Second layer from the top', 'Turn the slice just under the top layer so its front slides to your RIGHT. The top layer itself does not move.'],
-    'u2': ['Second layer from the top', 'Turn the slice just under the top layer half way around. The top layer itself does not move.'],
     'd': ['Second layer from the bottom', 'Turn the slice just ABOVE the bottom layer the way you would turn the bottom: its front slides to your RIGHT. The bottom layer itself does not move.'],
     "d'": ['Second layer from the bottom', 'Turn the slice just above the bottom layer so its front slides to your LEFT. The bottom layer itself does not move.'],
-    'd2': ['Second layer from the bottom', 'Turn the slice just above the bottom layer half way around. The bottom layer itself does not move.'],
-    'r': ['Second layer from the right', 'Turn the slice just INSIDE the right face the same way you would turn that face: its front edge lifts UP. The right face itself does not move.'],
+    'r': ['Second layer from the right', 'Turn the slice just INSIDE the right face the way you would turn that face: its front edge lifts UP. The right face itself does not move.'],
     "r'": ['Second layer from the right', 'Turn the slice just inside the right face so its front edge drops DOWN. The right face itself does not move.'],
-    'r2': ['Second layer from the right', 'Turn the slice just inside the right face half way around. The right face itself does not move.'],
-    'l': ['Second layer from the left', 'Turn the slice just INSIDE the left face the same way you would turn that face: its front edge drops DOWN. The left face itself does not move.'],
+    'l': ['Second layer from the left', 'Turn the slice just INSIDE the left face the way you would turn that face: its front edge drops DOWN. The left face itself does not move.'],
     "l'": ['Second layer from the left', 'Turn the slice just inside the left face so its front edge lifts UP. The left face itself does not move.'],
-    'l2': ['Second layer from the left', 'Turn the slice just inside the left face half way around. The left face itself does not move.'],
-    'f': ['Second layer from the front', 'Turn the slice just BEHIND the front face the same way you would turn that face: its top row slides RIGHT. The front face itself does not move.'],
+    'f': ['Second layer from the front', 'Turn the slice just BEHIND the front face the way you would turn that face: its top row slides RIGHT. The front face itself does not move.'],
     "f'": ['Second layer from the front', 'Turn the slice just behind the front face so its top row slides LEFT. The front face itself does not move.'],
-    'f2': ['Second layer from the front', 'Turn the slice just behind the front face half way around. The front face itself does not move.'],
     'b': ['Second layer from the back', 'Turn the slice just IN FRONT of the back face the way you would turn that face: its top row slides LEFT. The back face itself does not move.'],
-    "b'": ['Second layer from the back', 'Turn the slice just in front of the back face so its top row slides RIGHT. The back face itself does not move.'],
-    'b2': ['Second layer from the back', 'Turn the slice just in front of the back face half way around. The back face itself does not move.']
+    "b'": ['Second layer from the back', 'Turn the slice just in front of the back face so its top row slides RIGHT. The back face itself does not move.']
   };
 
   function faceColorName(letter) {
     var faceIndex = Cube.FACE_INDEX[letter];
-    var c = colorStates.length ? colorStates[0][Cube.CENTERS[faceIndex]] : colorState[Cube.CENTERS[faceIndex]];
+    var c = plan ? plan.states[0][Cube.CENTERS[faceIndex]] : colorState[Cube.CENTERS[faceIndex]];
     return c < 0 ? '' : COLOR_NAMES[c];
   }
 
@@ -349,48 +384,22 @@
    * An unknown move now falls back to its notation rather than being an
    * exception — worse to read, but the player keeps going.
    */
-  function describe(move) {
+  function describe(step) {
+    var move = step.move;
     var text = MOVE_TEXT[move];
     if (!text) text = [move, 'Turn the layer this move names.'];
     // Only a 3x3 has a fixed centre to name a face by, and only an outer face
     // turn names one at all.
     var name = (size === 3 && move[0] === move[0].toUpperCase()) ? faceColorName(move[0]) : '';
-    return {
-      title: text[0] + (name ? ' (' + name + ')' : ''),
-      detail: text[1],
-      turn: move.length > 1 && move[1] === '2' ? 'half turn · 180°' : 'quarter turn · 90°'
-    };
+    var detail = text[1];
+    // A half turn is shown as two quarters, and being told which one you are on
+    // is the difference between "again?" and "again."
+    if (step.half === 1) detail += ' This is a half turn done in two: the same turn comes again next.';
+    else if (step.half === 2) detail += ' Second half of the same turn — the layer ends up opposite where it started.';
+    return { title: text[0] + (name ? ' (' + name + ')' : ''), detail: detail };
   }
 
   // ---- solving -----------------------------------------------------------
-
-  function currentMode() {
-    var picked = document.querySelector('input[name="mode"]:checked');
-    return picked ? picked.value : 'fast';
-  }
-
-  /** Chop a flat move list into bite-sized groups so the player still has structure. */
-  function chunkGroups(moves) {
-    var groups = [], per = 5;
-    for (var i = 0; i < moves.length; i += per) {
-      var count = Math.min(per, moves.length - i);
-      groups.push({
-        id: 'chunk' + i,
-        title: 'Moves ' + (i + 1) + '–' + (i + count),
-        blurb: 'Shortest-route solution: the cube stays a mess until the last few turns. Just follow the arrow.',
-        start: i, count: count
-      });
-    }
-    return groups;
-  }
-
-  function fastResult(moves) {
-    return {
-      moves: moves,
-      steps: moves.map(function (m) { return { move: m, stage: 'fast' }; }),
-      groups: chunkGroups(moves)
-    };
-  }
 
   /** The two-phase solver needs its lookup tables built once per page load. */
   function ensureFastSolver(next) {
@@ -409,66 +418,59 @@
   function doSolve() {
     if (size === 2) { solveWith(Solver2, 'Working out the shortest solution…'); return; }
     if (size === 4) { solveWith(Solver4, 'Working out a solution…'); return; }
-    if (size !== 3) {
-      setMessage('Solving a ' + size + '×' + size + ' is still being built. The map and the 3D view ' +
-        'work — scan one and have a look — but there is no solution to follow yet.', 'error');
-      return;
-    }
+
     // A cube that is nearly right is usually one sticker away from being right,
     // and "is this a real cube?" is a tight enough test to say which sticker.
-    repairNote = null;
     var mend = typeof CubeRepair !== 'undefined' ? CubeRepair.repair(colorState) : null;
     if (mend && mend.unique) {
       colorState.set(mend.colors);
       unsure = {};
       mend.fixes[0].changes.forEach(function (c) { unsure[c.index] = true; });
       refreshNet(); refreshViews(); save();
-      // Carried through to the solve screen: the setup message would be wiped
-      // by the view change, and a silent correction is the one thing this must
+      // Carried through to the solve screen: a setup message would be wiped by
+      // the view change, and a silent correction is the one thing this must
       // never be.
-      repairNote = 'That was not quite a real cube, and there was exactly one way to fix it: ' +
+      note = 'That was not quite a real cube, and there was exactly one way to fix it: ' +
         mend.summary + '. Corrected — go back and change it if that is wrong.';
     } else if (mend && !mend.unique) {
       unsure = {};
       mend.changed.forEach(function (group) { group.forEach(function (i) { unsure[i] = true; }); });
       refreshNet();
+      showView('edit');
       setMessage('Almost — one sticker is wrong, but there are ' + mend.fixes.length +
-        ' ways to fix it and I will not guess. The possibilities are outlined below; ' +
+        ' ways to fix it and I will not guess. The possibilities are outlined on the map; ' +
         'correct the one you know is wrong.', 'error');
       return;
     }
 
     var solverState = Cube.toSolverSpace(colorState);
     if (!solverState) {
-      setMessage('Every sticker needs a color, and the six centers must all be different. Fill in the gaps and try again.', 'error');
+      failTo('Every sticker needs a colour, and the six centres must all be different. Fill in the gaps and try again.');
       return;
     }
     var check = Cube.validate(solverState);
-    if (!check.ok) { setMessage(check.message, 'error'); return; }
+    if (!check.ok) { failTo(check.message); return; }
 
     var solved = true;
     for (var i = 0; i < solverState.length; i++) if (solverState[i] !== Cube.SOLVED[i]) { solved = false; break; }
-    if (solved) { setMessage('That cube is already solved. Nothing to do!', 'ok'); return; }
+    if (solved) { showView('setup'); setMessage('That cube is already solved. Nothing to do!', 'ok'); return; }
 
-    if (currentMode() === 'fast') {
-      setMessage('Searching for a short solution…');
-      ensureFastSolver(function () {
-        setTimeout(function () {
-          try {
-            finishSolve(fastResult(Kociemba.solveMoves(solverState)));
-          } catch (err) {
-            setMessage('Something went wrong solving that state: ' + err.message, 'error');
-          }
-        }, 20);
-      });
-      return;
-    }
+    setMessage('Searching for a short solution…');
+    ensureFastSolver(function () {
+      setTimeout(function () {
+        try {
+          finishSolve({ moves: Kociemba.solveMoves(solverState) });
+        } catch (err) {
+          failTo('Something went wrong solving that state: ' + err.message);
+        }
+      }, 20);
+    });
+  }
 
-    try {
-      finishSolve(Solver.solve(solverState));
-    } catch (err) {
-      setMessage('Something went wrong solving that state: ' + err.message, 'error');
-    }
+  /** Nothing to follow, so land on the map with the reason showing. */
+  function failTo(message) {
+    showView('edit');
+    setMessage(message, 'error');
   }
 
   /**
@@ -478,19 +480,14 @@
    * neither has a centre sticker to say, so the only thing to check here is
    * that no sticker has been left blank. Anything past that they explain
    * themselves, and both refuse rather than guess.
-   *
-   * Neither offers a "fewest moves" choice, but for opposite reasons: a 2x2 is
-   * small enough that the answer is always the shortest one there is, and a 4x4
-   * is big enough that reduction is the only practical method.
    */
   function solveWith(solver, working) {
     for (var i = 0; i < colorState.length; i++) {
       if (colorState[i] < 0) {
-        setMessage('Every sticker needs a colour before solving. Fill in the gaps and try again.', 'error');
+        failTo('Every sticker needs a colour before solving. Fill in the gaps and try again.');
         return;
       }
     }
-    repairNote = null;
     setMessage(working);
 
     /*
@@ -510,206 +507,146 @@
         out = solver.solve(colorState);
       } catch (err) {
         $('prep').hidden = true;
-        setMessage('Something went wrong solving that cube: ' + err.message, 'error');
+        failTo('Something went wrong solving that cube: ' + err.message);
         return;
       }
       $('prep-fill').style.width = '100%';
       $('prep').hidden = true;
-      if (!out.ok) { setMessage(out.message, 'error'); return; }
+      if (!out.ok) { failTo(out.message); return; }
       setMessage('');
       finishSolve(out);
     }, 30);
   }
 
-  function finishSolve(solution) {
-    result = solution;
-    // A 4x4 solution brings its own states with it, worked out on the same
-    // model that produced the moves — so the two can never drift apart.
-    if (solution.states) {
-      colorStates = solution.states.map(function (s) { return Int8Array.from(s); });
-    } else {
-      colorStates = [Int8Array.from(colorState)];
-      for (var m = 0; m < result.moves.length; m++) {
-        colorStates.push(Cube.permute(colorStates[m], Cube.MOVE_PERMS[result.moves[m]], new Int8Array(stickerCount())));
-      }
-    }
+  /** out[i] = src[perm[i]], for a cube of any size. */
+  function permuteInto(src, perm) {
+    var out = new Int8Array(src.length);
+    for (var i = 0; i < src.length; i++) out[i] = src[perm[i]];
+    return out;
+  }
 
+  /**
+   * Split every half turn into two quarter turns.
+   *
+   * A 180° turn animated in one go is the one move nobody can follow: it has no
+   * direction to read — both ways land in the same place — and whichever way
+   * the animation happens to go, the layer sweeps past the position you were
+   * watching. As two quarter turns it is two ordinary moves in the same
+   * direction, each with its own arrow, and the player stops between them.
+   *
+   * States that came with a solution are kept exactly as given at every
+   * original move boundary; only the new midpoint is worked out here, so
+   * nothing can drift from what the solver actually meant.
+   */
+  function expandHalfTurns(solution) {
+    var perms = CubeN.of(size).MOVE_PERMS;
+    var given = solution.states || null;
+    var out = { moves: [], steps: [], states: [] };
+    out.states.push(Int8Array.from(given ? given[0] : colorState));
+
+    solution.moves.forEach(function (move, i) {
+      var isHalf = move.indexOf('2') > 0;
+      var parts = isHalf ? [move.replace('2', ''), move.replace('2', '')] : [move];
+      parts.forEach(function (part, k) {
+        var last = out.states[out.states.length - 1];
+        var next = (given && k === parts.length - 1)
+          ? Int8Array.from(given[i + 1])
+          : permuteInto(last, perms[part]);
+        out.moves.push(part);
+        out.steps.push({ move: part, half: isHalf ? k + 1 : 0 });
+        out.states.push(next);
+      });
+    });
+    return out;
+  }
+
+  function finishSolve(solution) {
+    plan = expandHalfTurns(solution);
     setMessage('');
-    $('repair-note').textContent = repairNote || '';
-    $('repair-note').hidden = !repairNote;
+    $('repair-note').textContent = note || '';
+    $('repair-note').hidden = !note;
     index = 0;
-    buildStageList();
-    buildNotationList();
     showView('solve');
     applyIndex();
   }
 
   function showView(which) {
     $('view-setup').hidden = which !== 'setup';
+    $('view-edit').hidden = which !== 'edit';
     $('view-solve').hidden = which !== 'solve';
-    document.querySelectorAll('.crumb').forEach(function (c) {
-      c.classList.toggle('is-active', c.dataset.crumb === which);
-    });
+    document.body.classList.toggle('solving', which === 'solve');
     if (which === 'solve') { solveFront.dirty = true; solveBack.dirty = true; }
     else { previewFront.dirty = true; previewBack.dirty = true; }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (which === 'edit') fitNet();
   }
 
   // ---- player ------------------------------------------------------------
 
-  function currentGroup() {
-    if (!result) return null;
-    var g = result.groups[0];
-    for (var i = 0; i < result.groups.length; i++) {
-      if (index >= result.groups[i].start) g = result.groups[i];
-    }
-    return g;
-  }
-
   function applyIndex() {
-    var total = result.steps.length;
+    if (!plan) return;
+    var total = plan.steps.length;
     var atEnd = index >= total;
-    solveFront.setState(colorStates[index]);
-    solveBack.setState(colorStates[index]);
+    solveFront.setState(plan.states[index]);
+    solveBack.setState(plan.states[index]);
 
-    var upcoming = atEnd ? null : result.steps[index].move;
+    var upcoming = atEnd ? null : plan.steps[index].move;
     solveFront.showArrowFor = upcoming;
     solveBack.showArrowFor = upcoming;
     solveFront.dirty = solveBack.dirty = true;
 
-    var group = currentGroup();
-    $('stage-name').textContent = atEnd ? 'Finished' : group.title;
-    $('stage-blurb').textContent = atEnd ? '' : group.blurb;
-
     if (atEnd) {
       $('move-title').textContent = 'Solved!';
-      $('move-detail').textContent = 'Every face should now be a single color. Nice work.';
-      $('move-notation').textContent = '—';
-      $('move-turn').textContent = String(total) + ' moves total';
+      $('move-detail').textContent = 'Every face should now be a single colour. ' + total + ' moves. Nice work.';
     } else {
-      var d = describe(upcoming);
+      var d = describe(plan.steps[index]);
       $('move-title').textContent = d.title;
       $('move-detail').textContent = d.detail;
-      $('move-notation').textContent = upcoming;
-      $('move-turn').textContent = d.turn;
     }
 
-    $('move-counter').textContent = 'Move ' + Math.min(index + 1, total) + ' of ' + total;
-    var groupIdx = result.groups.indexOf(group) + 1;
-    $('stage-counter').textContent = atEnd ? 'all stages complete' : 'stage ' + groupIdx + ' of ' + result.groups.length;
-    $('progress-fill').style.width = (100 * index / total).toFixed(1) + '%';
-
-    updateStageList();
-    updateNotationList();
-    $('btn-play').textContent = playing ? '❚❚ Pause' : (atEnd ? '▶ Play' : '▶ Play');
+    $('move-counter').textContent = atEnd ? 'Done' : 'Move ' + (index + 1) + ' of ' + total;
+    // a cube that was already solved has no moves at all, and 0/0 is not a width
+    $('progress-fill').style.width = (total ? 100 * index / total : 100).toFixed(1) + '%';
+    $('btn-prev').disabled = index === 0;
+    $('btn-replay').disabled = index === 0;
+    $('btn-next').disabled = atEnd;
+    $('btn-next').textContent = atEnd ? 'Done' : 'Next ›';
   }
 
-  function speed() { return SPEEDS[+$('speed').value] || SPEEDS[2]; }
-
-  function stepForward(animate) {
-    if (busy || !result || index >= result.steps.length) return;
-    var move = result.steps[index].move;
-    if (!animate) { index++; applyIndex(); return; }
+  function stepForward() {
+    if (busy || !plan || index >= plan.steps.length) return;
+    var move = plan.steps[index].move;
     busy = true;
     solveFront.showArrowFor = null;
     solveBack.showArrowFor = null;
-    solveBack.playMove(move, speed().move, null);
-    solveFront.playMove(move, speed().move, function () {
+    solveBack.playMove(move, MOVE_MS, null);
+    solveFront.playMove(move, MOVE_MS, function () {
       index++;
       busy = false;
       applyIndex();
-      if (playing) {
-        if (index >= result.steps.length) { setPlaying(false); }
-        else playTimer = setTimeout(function () { stepForward(true); }, speed().gap);
-      }
     });
   }
 
   function stepBack() {
-    if (busy || !result || index === 0) return;
-    setPlaying(false);
+    if (busy || !plan || index === 0) return;
     index--;
     applyIndex();
-  }
-
-  function setPlaying(on) {
-    playing = on;
-    clearTimeout(playTimer);
-    $('btn-play').textContent = on ? '❚❚ Pause' : '▶ Play';
-    if (on) stepForward(true);
   }
 
   function replayCurrent() {
-    if (busy || !result || index === 0) return;
-    setPlaying(false);
+    if (busy || !plan || index === 0) return;
     index--;
     applyIndex();
-    stepForward(true);
-  }
-
-  function jumpTo(target) {
-    if (!result) return;
-    setPlaying(false);
-    if (busy) { solveFront.stopAnimation(); solveBack.stopAnimation(); busy = false; }
-    index = Math.max(0, Math.min(result.steps.length, target));
-    applyIndex();
-  }
-
-  // ---- stage list + notation --------------------------------------------
-
-  function buildStageList() {
-    var wrap = $('stage-list');
-    wrap.innerHTML = '';
-    result.groups.forEach(function (g, i) {
-      var row = document.createElement('div');
-      row.className = 'stage-row';
-      row.dataset.start = g.start;
-      row.innerHTML = '<span class="stage-dot">✓</span>' +
-        '<span class="stage-title"></span>' +
-        '<span class="stage-count">' + g.count + ' move' + (g.count === 1 ? '' : 's') + '</span>';
-      row.querySelector('.stage-title').textContent = (i + 1) + '. ' + g.title;
-      row.addEventListener('click', function () { jumpTo(g.start); });
-      wrap.appendChild(row);
-    });
-  }
-
-  function updateStageList() {
-    var rows = $('stage-list').children;
-    var group = currentGroup();
-    var currentIdx = result.groups.indexOf(group);
-    var atEnd = index >= result.steps.length;
-    for (var i = 0; i < rows.length; i++) {
-      var g = result.groups[i];
-      rows[i].classList.toggle('is-current', !atEnd && i === currentIdx);
-      rows[i].classList.toggle('is-done', index >= g.start + g.count);
-    }
-  }
-
-  function buildNotationList() {
-    var wrap = $('notation-list');
-    wrap.innerHTML = '';
-    result.steps.forEach(function (s, i) {
-      var span = document.createElement('span');
-      span.textContent = s.move;
-      span.dataset.i = i;
-      span.style.cursor = 'pointer';
-      span.addEventListener('click', function () { jumpTo(i); });
-      wrap.appendChild(span);
-      wrap.appendChild(document.createTextNode(' '));
-    });
-  }
-
-  function updateNotationList() {
-    var spans = $('notation-list').children;
-    for (var i = 0; i < spans.length; i++) {
-      spans[i].classList.toggle('now', +spans[i].dataset.i === index);
-    }
+    stepForward();
   }
 
   // ---- events ------------------------------------------------------------
 
   function wire() {
-    $('btn-solve').addEventListener('click', doSolve);
+    $('btn-solve').addEventListener('click', function () { note = null; doSolve(); });
+    $('btn-edit').addEventListener('click', function () { showView('edit'); });
+    $('btn-home').addEventListener('click', function () { showView('setup'); });
+    $('btn-back').addEventListener('click', function () { showView('setup'); });
+
     $('btn-example').addEventListener('click', function () {
       /*
        * Scramble with the cube that is actually on screen.
@@ -727,7 +664,7 @@
       orientedFromScan = false;
       unsure = {};
       refreshNet(); refreshViews(); updateHoldLabels(); save();
-      setMessage('Scrambled with: ' + scramble.join(' '), 'ok');
+      setMessage('Scrambled. Solve it to see the way back.', 'ok');
     });
     $('btn-solved').addEventListener('click', function () {
       colorState.set(solvedColorState());
@@ -738,21 +675,14 @@
       for (var i = 0; i < stickerCount(); i++) if (!isCenter(i)) colorState[i] = -1;
       refreshNet(); refreshViews(); save();
       setMessage(size === 3
-        ? 'Cleared — the centers stay put because they never move on a 3x3.'
-        : 'Cleared. A 4x4 has no fixed centers, so everything went.');
+        ? 'Cleared — the centres stay put because they never move on a 3×3.'
+        : 'Cleared. A ' + size + '×' + size + ' has no fixed centres, so everything went.');
     });
     $('edit-centers').addEventListener('change', function (e) {
       $('net').classList.toggle('centers-unlocked', e.target.checked);
     });
     document.querySelectorAll('.size-option').forEach(function (button) {
       button.addEventListener('click', function () { setSize(+button.dataset.size); });
-    });
-    document.querySelectorAll('input[name="mode"]').forEach(function (radio) {
-      radio.addEventListener('change', function () {
-        document.querySelectorAll('.mode').forEach(function (label) {
-          label.classList.toggle('is-active', label.contains(radio) && radio.checked);
-        });
-      });
     });
 
     $('btn-scan').addEventListener('click', function () {
@@ -769,43 +699,58 @@
           refreshNet(); refreshViews(); updateHoldLabels(); save();
 
           if (result.source === 'failed') {
+            showView('edit');
             setMessage(result.note || 'Those photos did not add up to a real cube. Fix the wrong ' +
               'stickers on the map, or scan again.', 'error');
-          } else if (result.ambiguous) {
-            setMessage('Scanned, but those photos fit together in more than one way — with no fixed ' +
-              'centre to go by, that can happen. Check the map against your cube before solving.', 'error');
-          } else {
-            setMessage('Scanned, and it fits together as a real cube. Keep holding it exactly as you ' +
-              'did for the last photo — the moves are written for that.', 'ok');
+            return;
           }
-          if (result.note) console.info('scan note:', result.note);
+
+          /*
+           * Straight on to the answer.
+           *
+           * There is nothing worth asking here: the reading either fits
+           * together as a real cube or it does not, and if it does, the only
+           * reason anyone scanned is to be told what to do next. Checking the
+           * map first was a step that existed because the code had one.
+           */
+          setMessage('Scanned. Working out the moves…', 'ok');
+          note = result.ambiguous
+            ? 'Those photos fit together in more than one way — with no fixed centre to go by, that ' +
+              'can happen. If the cube on screen is not your cube, go back and fix the map.'
+            : null;
+          doSolve();
         }
       });
       scanner.open();
     });
 
-    $('btn-next').addEventListener('click', function () { setPlaying(false); stepForward(true); });
+    $('btn-next').addEventListener('click', stepForward);
     $('btn-prev').addEventListener('click', stepBack);
-    $('btn-play').addEventListener('click', function () {
-      if (index >= result.steps.length) { jumpTo(0); }
-      setPlaying(!playing);
-    });
     $('btn-replay').addEventListener('click', replayCurrent);
-    $('btn-restart').addEventListener('click', function () { jumpTo(0); });
-    $('btn-back').addEventListener('click', function () { setPlaying(false); showView('setup'); });
-    document.querySelectorAll('.crumb').forEach(function (c) {
-      c.addEventListener('click', function () {
-        if (c.dataset.crumb === 'setup') { setPlaying(false); showView('setup'); }
-        else if (result) showView('solve');
-      });
-    });
 
     document.addEventListener('keydown', function (e) {
       if ($('view-solve').hidden) return;
-      if (e.key === 'ArrowRight') { setPlaying(false); stepForward(true); e.preventDefault(); }
+      if (e.key === 'ArrowRight' || e.key === ' ') { stepForward(); e.preventDefault(); }
       else if (e.key === 'ArrowLeft') { stepBack(); e.preventDefault(); }
-      else if (e.key === ' ') { setPlaying(!playing); e.preventDefault(); }
     });
+
+    document.addEventListener('pointerup', function () { painting = false; });
+
+    /*
+     * The map is sized to its box, so anything that changes the box has to
+     * refit it, and turning the phone is only the obvious one. A message
+     * appearing underneath takes 20-40px out of the box; on the phone profiles
+     * measured there is enough slack around the map to absorb that, but it is
+     * slack, not a guarantee — the map is centred inside an overflow: hidden
+     * parent, so a fit that is height-limited when the box shrinks loses a row
+     * off the top and the bottom with nothing to show for it. Watching the box
+     * itself covers every cause at once, including the ones nobody thought of.
+     */
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(fitNet).observe(document.querySelector('.net-fit'));
+    }
+    window.addEventListener('resize', fitNet);
+    window.addEventListener('orientationchange', function () { setTimeout(fitNet, 250); });
   }
 
   // ---- boot --------------------------------------------------------------

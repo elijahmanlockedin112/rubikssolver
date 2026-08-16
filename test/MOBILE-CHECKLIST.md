@@ -28,8 +28,8 @@ The single biggest hole in the automated suite. `getUserMedia` never resolves
 under emulation, so every one of these paths has only ever run in a browser
 that refused the camera.
 
-- [ ] Tapping **Scan with your camera** prompts for camera permission the first
-      time, and only the first time.
+- [ ] Tapping **Scan my cube** prompts for camera permission the first time,
+      and only the first time.
 - [ ] Allowing it shows a live picture, the right way up, not mirrored.
 - [ ] It is the **back** camera (`facingMode: 'environment'`), not the selfie one.
 - [ ] Denying permission shows a readable explanation, not a blank black box,
@@ -49,8 +49,11 @@ that refused the camera.
       layout now changes that box's shape.
 - [ ] The outline tracks as you move the phone, and does not lag so far behind
       that you snap the wrong moment.
-- [ ] Six faces in any order, each held any way up, ends on the sticker map with
-      the colours in the right places.
+- [ ] Six faces in any order, each held any way up, ends **on the first move of
+      a solution** — the scanner closes, the cube is solved without being asked,
+      and there is nothing to confirm on the way. If it lands on the map
+      instead, read the message: that is the reading not adding up to a real
+      cube, which is a scanning problem, not a flow one.
 - [ ] The thumbnails along the bottom fill in one per snap.
 - [ ] **Redo last** goes back exactly one face, and the outline goes green again
       rather than staying amber at the face you just threw away.
@@ -117,17 +120,32 @@ That is a claim about how it feels, and no test can check it.
 
 ## 4. Stepping through a solution
 
-- [ ] **Play**, **‹**, **›** and **↻ Repeat** all hit first time with a thumb,
-      one-handed, without zooming.
+- [ ] **Next**, **‹ Back** and **↻** all hit first time with a thumb,
+      one-handed, without zooming. Next is the big one and should be reachable
+      with the thumb of the hand holding the phone.
 - [ ] The animation is smooth rather than juddering — this is a software 3D
       renderer on a 2D canvas, and a phone GPU does not help it.
-- [ ] The speed slider can be dragged with a thumb. It is 44px tall now, but
-      the track inside it is still 16px, so this is worth a real check.
-- [ ] Dragging the big cube spins it, and dragging it does **not** scroll the
-      page. (`touch-action: none` should see to that.)
+- [ ] **A move is slow enough to follow.** One quarter turn takes 1.1 seconds
+      by design. Watch a few without looking away: can you tell which way the
+      layer went, first time, every time? If not, `MOVE_MS` in `js/app.js` is
+      the number.
+- [ ] **Half turns come as two moves.** A 180° turn is split into two quarter
+      turns in the same direction, with a stop in between, and the card says so.
+      Check that reads as deliberate rather than as the app repeating itself.
+- [ ] **The cube is shown square on** — front face flat, top face as a band
+      above it. Hold your cube the same way. Does the picture match what is in
+      your hand well enough to copy the move without thinking about it? This is
+      the one change here that is purely a judgement call.
+- [ ] Dragging the big cube spins it, and dragging it does **not** scroll or
+      bounce the page. (`touch-action: none` and `overscroll-behavior: none`
+      should see to that.)
 - [ ] Dragging the small back-view cube spins that one.
-- [ ] Tapping a stage in the list jumps to it.
-- [ ] Scroll down, scroll back — nothing has shifted or reflowed.
+- [ ] **Nothing scrolls, and nothing is cut off.** This is the point of the
+      layout: html and body are `overflow: hidden`, so anything that does not
+      fit is clipped rather than scrolled. Check the bottom of all three
+      screens carefully, in both orientations, at 2x2, 3x3 and 4x4 — and with
+      Larger Text turned up (Settings → Display & Brightness → Text Size), which
+      is the setting most likely to break it.
 
 ## 5. Safari itself
 
@@ -140,9 +158,12 @@ None of this exists under emulation.
       behind it. The automated suite fakes these insets and checks the CSS
       arithmetic; it cannot check that iOS reports them or that
       `viewport-fit=cover` behaves.
-- [ ] **Safari's own chrome.** The address bar collapses as you scroll and comes
-      back when you scroll up, changing the visible height as it goes. Nothing
-      should be permanently hidden behind it.
+- [ ] **Safari's own chrome.** The page cannot be scrolled, so the address bar
+      never collapses and the visible height is the small one. That is exactly
+      what `100dvh` is for, and iOS Safari is the browser it was invented for —
+      check that the bottom row of every screen is above the toolbar rather
+      than behind it. Then check it again in Chrome for iOS, whose toolbar is a
+      different height.
 - [ ] **Rotating with the scanner open.** Turn the phone while the camera is
       running. The layout should swap to two columns and the video should keep
       going.
@@ -159,7 +180,7 @@ None of this exists under emulation.
 
 ## 6. Things worth trying that nobody plans for
 
-- [ ] Leave it open for ten minutes, come back, and press Play.
+- [ ] Leave it open for ten minutes, come back, and press Next.
 - [ ] Fill in a cube, close Safari entirely, reopen — the cube should still be
       there (it is kept in `localStorage`).
 - [ ] Private Browsing, where `localStorage` throws. The app should still work
@@ -177,12 +198,20 @@ Do not spend phone time on these.
 `npm run test:mobile` — iPhone SE (375), iPhone 15 (393) and Pixel 7 (412),
 portrait and landscape:
 
-- horizontal overflow at every cube size, on both views and with the scanner open
-- every button, input, summary and label at 44px or more
-- sticker size at 2x2, 3x3 and 4x4
+- **vertical overflow: every screen, at every cube size, must fit the window
+  without scrolling** — including after a move has been made and the wording
+  has changed under it
+- horizontal overflow at every cube size, on all three screens and with the
+  scanner open
+- every button, input, summary and label at 44px or more, on all three screens
+- sticker size at 2x2, 3x3 and 4x4 (measured table in the spec's header)
+- the home screen staying a cube, a size and a scan button, and nothing else
+  growing back onto it
 - the scanner card, camera preview and three buttons fully on screen, with no
   modal scrolling, and the tip not covered by the preview
-- the header and the scanner clearing simulated notch and home-indicator insets
+- the header, the scanner, and the solve screen's own top row — which is what
+  clears the notch there, since the header is hidden — against simulated notch
+  and home-indicator insets
 
 `npm run test:camera` — the scanner on a fake camera, in Chromium:
 

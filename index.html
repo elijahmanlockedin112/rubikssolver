@@ -7,156 +7,111 @@
      of zero, which is what every inset in styles.css depends on. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Rubik's Cube Coach</title>
-<meta name="description" content="Enter your cube's colors and get a step-by-step 3D solution — no notation to learn.">
+<meta name="description" content="Scan your cube with the camera and follow the moves, one at a time.">
 <link rel="stylesheet" href="css/styles.css">
 </head>
+<!--
+  Three screens, one at a time, each exactly as tall as the window.
+
+  The page itself never scrolls — body is a flex column of fixed height and the
+  one flexible row on each screen (the cube, or the sticker map) is what gives
+  up space. A phone that has to be scrolled to reach the next move is a phone
+  being held in one hand next to a cube being held in the other.
+-->
 <body>
 
 <header class="topbar">
-  <div class="brand">
-    <span class="logo" aria-hidden="true"></span>
-    <div>
-      <h1>Rubik's Cube Coach</h1>
-      <p>Enter your colors, then follow the pictures. No notation required.</p>
-    </div>
-  </div>
-  <nav class="steps-nav">
-    <span class="dev-badge" title="Solves the 2x2, 3x3 and 4x4. The 3x3 has two solution styles; the 2x2 is always solved in the fewest moves possible.">
-      2×2 · 3×3 · 4×4
-    </span>
-    <span class="crumb is-active" data-crumb="setup">1 · Enter colors</span>
-    <span class="crumb" data-crumb="solve">2 · Follow the moves</span>
-  </nav>
+  <span class="logo" aria-hidden="true"></span>
+  <h1>Cube Coach</h1>
 </header>
 
-<!-- ───────────────────────── setup ───────────────────────── -->
-<main id="view-setup" class="view">
-  <section class="panel panel-input">
-    <h2>Paint your cube</h2>
-    <p class="hint">
-      <span id="hold-note">Hold your cube with the white centre on top and the green centre facing
-      you, then fill in every sticker to match.</span>
-      You can click stickers on the flat map <em>or</em> on the 3D cube.
-    </p>
+<!-- ───────────────────── home: scan, and little else ───────────────────── -->
+<main id="view-setup" class="view view-home">
+  <div class="size-picker" role="group" aria-label="Cube size">
+    <button class="size-option" data-size="2">2×2</button>
+    <button class="size-option is-active" data-size="3">3×3</button>
+    <button class="size-option" data-size="4">4×4</button>
+  </div>
 
-    <div class="size-picker" role="group" aria-label="Cube size">
-      <button class="size-option" data-size="2">2×2</button>
-      <button class="size-option is-active" data-size="3">3×3</button>
-      <button class="size-option" data-size="4">4×4</button>
-      <span class="size-note" id="size-note">The camera works out the size on its own.</span>
-    </div>
+  <div class="preview-wrap">
+    <canvas id="preview-front" class="cube-canvas"></canvas>
+    <canvas id="preview-back" class="cube-canvas small"></canvas>
+  </div>
 
-    <div class="scan-cta">
-      <button id="btn-scan" class="btn btn-scan">📷 Scan with your camera</button>
-      <span class="scan-cta-note">Six quick snaps, then check the map below.</span>
-    </div>
+  <p id="setup-message" class="message" role="status"></p>
 
-    <div class="palette" id="palette" role="toolbar" aria-label="Color picker"></div>
+  <div class="home-actions">
+    <button id="btn-scan" class="btn btn-scan">📷 Scan my cube</button>
+    <button id="btn-edit" class="btn btn-ghost">Type the colours in instead</button>
+  </div>
 
-    <div class="net-scroll">
-      <div class="net" id="net"></div>
-    </div>
-
-    <label class="toggle" id="centres-toggle">
-      <input type="checkbox" id="edit-centers">
-      <span>Let me change the centre colours (only if your cube uses a different scheme)</span>
-    </label>
-
-    <fieldset class="modes" id="modes">
-      <legend>Which solution do you want?</legend>
-      <label class="mode is-active">
-        <input type="radio" name="mode" value="fast" checked>
-        <span class="mode-title">Fewest moves</span>
-        <span class="mode-sub">About 20 moves. Machine-found — short, but the moves won't feel logical.</span>
-      </label>
-      <label class="mode">
-        <input type="radio" name="mode" value="learn">
-        <span class="mode-title">Teach me</span>
-        <span class="mode-sub">About 110 moves, in seven stages you could learn to do yourself.</span>
-      </label>
-    </fieldset>
-
-    <div class="row-buttons">
-      <button id="btn-solve" class="btn btn-primary">Solve it →</button>
-      <button id="btn-example" class="btn">Try a random scramble</button>
-      <button id="btn-solved" class="btn btn-ghost">Reset to solved</button>
-      <button id="btn-clear" class="btn btn-ghost">Clear</button>
-    </div>
-
-    <p id="setup-message" class="message" role="status"></p>
-  </section>
-
-  <section class="panel panel-preview">
-    <h2>Your cube</h2>
-    <div class="preview-wrap">
-      <canvas id="preview-front" class="cube-canvas"></canvas>
-      <canvas id="preview-back" class="cube-canvas small"></canvas>
-    </div>
-    <p class="caption">
-      Big view: <b>top, front, right</b>. Small view: the three hidden faces
-      (<b>bottom, back, left</b>). Drag either one to spin it.
-    </p>
-  </section>
+  <p class="footer">
+    Kociemba's two-phase search for the 3×3, a full distance table for the 2×2,
+    and Shuang Chen's TPR reduction solver — ported under its MIT licence — for
+    the 4×4. Everything runs on this device.
+  </p>
 </main>
 
-<!-- ───────────────────────── solve ───────────────────────── -->
-<main id="view-solve" class="view" hidden>
-  <section class="panel panel-stage">
-    <p id="repair-note" class="repair-note" hidden></p>
-    <div class="orientation-note">
-      <span id="orientation-note-text">Keep white on top and green facing you for every move.</span>
-    </div>
+<!-- ───────────────────── the map, for typing or fixing ───────────────────── -->
+<main id="view-edit" class="view view-edit" hidden>
+  <p class="hint" id="hold-note"></p>
 
-    <div class="stage-canvases">
-      <canvas id="solve-front-canvas" class="cube-canvas big"></canvas>
-      <canvas id="solve-back-canvas" class="cube-canvas small"></canvas>
-    </div>
+  <div class="palette" id="palette" role="toolbar" aria-label="Color picker"></div>
 
-    <div class="transport">
-      <button id="btn-prev" class="btn btn-round" title="Previous move (←)">‹</button>
-      <button id="btn-play" class="btn btn-play" title="Play / pause (space)">▶ Play</button>
-      <button id="btn-next" class="btn btn-round" title="Next move (→)">›</button>
-      <button id="btn-replay" class="btn btn-ghost" title="Show this move again">↻ Repeat</button>
-      <label class="speed">
-        Speed
-        <input id="speed" type="range" min="0" max="4" step="1" value="2">
-      </label>
-    </div>
+  <!-- app.js measures this box and sizes the six faces to fill it, so the map
+       fits the screen at 2x2, 3x3 and 4x4 without the page ever scrolling -->
+  <div class="net-fit">
+    <div class="net" id="net"></div>
+  </div>
 
+  <label class="toggle" id="centres-toggle">
+    <input type="checkbox" id="edit-centers">
+    <span>Change the centre colours</span>
+  </label>
+
+  <p id="edit-message" class="message" role="status"></p>
+
+  <div class="row-buttons">
+    <button id="btn-solve" class="btn btn-primary">Solve it →</button>
+    <button id="btn-example" class="btn">Scramble</button>
+    <button id="btn-solved" class="btn btn-ghost">Solved</button>
+    <button id="btn-clear" class="btn btn-ghost">Clear</button>
+    <button id="btn-home" class="btn btn-ghost">← Back</button>
+  </div>
+</main>
+
+<!-- ───────────────────────── follow the moves ───────────────────────── -->
+<main id="view-solve" class="view view-solve" hidden>
+  <div class="solve-top">
+    <button id="btn-back" class="btn btn-ghost btn-icon" title="Back">←</button>
     <div class="progress"><div id="progress-fill" class="progress-fill"></div></div>
-    <p class="counter"><span id="move-counter">Move 0 of 0</span> · <span id="stage-counter"></span></p>
-  </section>
+    <span class="counter" id="move-counter">Move 0 of 0</span>
+  </div>
 
-  <section class="panel panel-instructions">
-    <div class="instruction-card">
-      <p class="stage-name" id="stage-name">Bottom cross</p>
-      <p class="stage-blurb" id="stage-blurb"></p>
-      <h2 class="move-title" id="move-title">Ready</h2>
-      <p class="move-detail" id="move-detail">Press play, or step through one move at a time.</p>
-      <div class="move-meta">
-        <span class="pill" id="move-notation">—</span>
-        <span class="pill pill-quiet" id="move-turn">—</span>
-      </div>
-    </div>
+  <p id="repair-note" class="repair-note" hidden></p>
 
-    <div class="stage-list" id="stage-list"></div>
+  <div class="stage-canvases">
+    <canvas id="solve-front-canvas" class="cube-canvas big"></canvas>
+    <canvas id="solve-back-canvas" class="cube-canvas small"></canvas>
+  </div>
 
-    <div class="row-buttons">
-      <button id="btn-back" class="btn btn-ghost">← Change colors</button>
-      <button id="btn-restart" class="btn btn-ghost">Start over from move 1</button>
-    </div>
+  <div class="instruction-card">
+    <h2 class="move-title" id="move-title">Ready</h2>
+    <p class="move-detail" id="move-detail">Tap Next to make the first move.</p>
+    <p class="orientation-note"><span id="orientation-note-text"></span></p>
+  </div>
 
-    <details class="notation-help">
-      <summary>Show the move list in cube notation</summary>
-      <p id="notation-list" class="notation-list"></p>
-    </details>
-  </section>
+  <div class="transport">
+    <button id="btn-prev" class="btn" title="Previous move (←)">‹ Back</button>
+    <button id="btn-replay" class="btn btn-icon" title="Show this move again">↻</button>
+    <button id="btn-next" class="btn btn-primary btn-next" title="Next move (→)">Next ›</button>
+  </div>
 </main>
 
 <!-- ───────────────────────── scanner ───────────────────────── -->
 <div id="scanner" class="modal" hidden>
   <div class="modal-card">
-    <h2 id="scan-title">Face 1 of 6 — Front</h2>
+    <h2 id="scan-title">Face 1 of 6</h2>
     <p id="scan-tip" class="hint"></p>
     <!-- One row in portrait, two columns when the phone is turned sideways: a
          375px-tall landscape viewport cannot stack a camera preview above the
@@ -177,12 +132,6 @@
           <button id="scan-close" class="btn btn-ghost">Cancel</button>
         </div>
         <p id="scan-message" class="message"></p>
-        <p class="caption scan-caption">
-          The outline fills in green as it makes up its mind, then the picture
-          blinks to say it has one. Amber means it is waiting for you to turn the
-          cube to a face you have not done. Angle, distance and which way up all
-          sort themselves out — it reads the cube on this device, instantly.
-        </p>
       </div>
     </div>
     <canvas id="scan-canvas" hidden></canvas>
@@ -191,23 +140,14 @@
 
 <div id="prep" class="modal" hidden>
   <div class="modal-card modal-small">
-    <h2>Warming up the solver</h2>
+    <h2>Working it out</h2>
     <p class="hint" id="prep-label">Building the lookup tables — a few seconds, once per visit.</p>
     <div class="progress"><div id="prep-fill" class="progress-fill"></div></div>
   </div>
 </div>
 
-<footer class="footer">
-  Four solvers under the hood. 3×3: Kociemba's two-phase search for the short
-  answer, or the layer-by-layer beginner method for the one you can learn.
-  2×2: every position solved from a full distance table, so the answer is always
-  the shortest that exists. 4×4: a three-phase reduction search, ported from
-  Shuang Chen's TPR solver under its MIT licence.
-</footer>
-
 <script src="js/cube.js"></script>
 <script src="js/cuben.js"></script>
-<script src="js/solver.js"></script>
 <script src="js/kociemba.js"></script>
 <script src="js/solver2.js"></script>
 <script src="js/tpr.js"></script>
