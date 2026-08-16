@@ -22,6 +22,9 @@
   --safe-l: env(safe-area-inset-left, 0px);
 
   --pad-x: clamp(12px, 3vw, 30px);
+  /* big enough to check a face against the cube in your hand, small enough
+     that the camera above it keeps the room it needs */
+  --guide-size: 104px;
 }
 
 * { box-sizing: border-box; }
@@ -35,7 +38,8 @@
  * The vh line is the fallback for anything older than iOS 15.4.
  *
  * Each screen is a flex column with exactly one row that can give up space —
- * the cube, or the sticker map — so nothing else ever has to be scrolled to.
+ * the cube, or the face being painted — so nothing else ever has to be
+ * scrolled to.
  */
 html, body {
   margin: 0;
@@ -93,7 +97,6 @@ body.solving .topbar { display: none; }
 }
 
 /* ---------- home ---------- */
-.view-home { align-items: stretch; }
 .home-actions { flex: none; display: flex; flex-direction: column; gap: 8px; }
 .btn-scan {
   background: linear-gradient(135deg, #2f6bd8, #2aa17a);
@@ -103,13 +106,7 @@ body.solving .topbar { display: none; }
   min-height: 60px;
 }
 .btn-scan:hover { filter: brightness(1.12); border-color: transparent; }
-.footer {
-  flex: none;
-  color: #5f6878;
-  font-size: 0.68rem;
-  line-height: 1.4;
-  margin: 0;
-}
+.flat-note { margin: 0; font-size: 0.76rem; color: var(--text-dim); text-align: center; }
 
 /* ---------- size picker ---------- */
 .size-picker { flex: none; display: flex; gap: 8px; }
@@ -123,14 +120,48 @@ body.solving .topbar { display: none; }
 .size-option:hover { border-color: #3a4150; color: var(--text); }
 .size-option.is-active { border-color: var(--accent); color: var(--text); background: rgba(76,141,255,0.14); }
 
-/* ---------- palette + map ---------- */
-.hint { color: var(--text-dim); font-size: 0.8rem; margin: 0; flex: none; }
-.palette { flex: none; display: flex; flex-wrap: wrap; gap: 6px; }
-/* min-width, not a flex-basis to shrink from: seven of these in the narrow
-   column a landscape phone leaves squeezed each one to 42.7px, which is under
-   the 44px a fingertip is measured against. They wrap now instead. */
+/* ---------- the guidance cube ---------- */
+/*
+ * A grey cube that fills in as faces are read and turns the way your hands
+ * should. It is the instruction; the line beside it is the backup, which is
+ * why the arrow is the size it is.
+ */
+.guide-row {
+  flex: none;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.guide-canvas {
+  flex: none;
+  width: var(--guide-size);
+  height: var(--guide-size);
+  display: block;
+  border-radius: 10px;
+  background: radial-gradient(circle at 50% 40%, #1c212c 0%, #12151b 70%);
+  border: 1px solid var(--line);
+}
+.guide-line {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+.guide-arrow {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--accent-2);
+  flex: none;
+}
+.guide-arrow:empty { display: none; }
+
+/* ---------- palette + the face being painted ---------- */
 /* max-width so a row that wraps does not hand the leftovers a swatch four
    times the size of the rest of them */
+.palette { flex: none; display: flex; flex-wrap: wrap; gap: 6px; }
 .swatch {
   flex: 1 1 44px; min-width: 44px; max-width: 68px; height: 44px;
   border-radius: 10px; cursor: pointer;
@@ -144,14 +175,13 @@ body.solving .topbar { display: none; }
 }
 
 /*
- * The map is measured, not guessed.
+ * One face at a time, as big as the box will allow.
  *
- * A cross four faces wide put 4x4 stickers at 17px on a 375px phone, and a
- * two-column reflow fixed the width but not the height — three rows of faces
- * plus a palette plus the buttons is more than a phone has, and the page went
- * back to scrolling. So app.js measures this box and picks the arrangement and
- * the face size that fill it, which is the only way to be sure the whole map
- * is on screen at every cube size on every phone.
+ * Six faces at once meant 4x4 stickers of 17px on a phone as a cross and 26px
+ * as a fitted map; one face is 80px. The cube on the left says which face you
+ * are on and the whole map is no longer competing with the palette for the
+ * same screen. app.js measures this box, because a landscape phone has 343px
+ * of height in total and nothing about that can be assumed.
  */
 .net-fit {
   flex: 1 1 auto;
@@ -160,27 +190,16 @@ body.solving .topbar { display: none; }
   place-items: center;
   overflow: hidden;
 }
-.net {
-  display: grid;
-  grid-template-columns: repeat(var(--net-cols, 2), var(--net-face, 120px));
-  column-gap: 10px;
-  row-gap: 18px;
-  justify-content: center;
-}
-.face-slot { position: relative; }
+.net { display: grid; justify-content: center; }
 .face {
   display: grid;
   grid-template-columns: repeat(var(--cube-size, 3), 1fr);
-  gap: 2px;
-  width: var(--net-face, 120px);
-  height: var(--net-face, 120px);
-}
-.face-label {
-  position: absolute; top: -13px; left: 2px;
-  font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim);
+  gap: 3px;
+  width: var(--net-face, 220px);
+  height: var(--net-face, 220px);
 }
 .sticker {
-  border-radius: 4px;
+  border-radius: 6px;
   border: 1px solid rgba(0,0,0,0.5);
   background: #31363f;
   cursor: pointer;
@@ -190,21 +209,17 @@ body.solving .topbar { display: none; }
 }
 .sticker.is-center { cursor: default; box-shadow: inset 0 0 0 2px rgba(0,0,0,0.35); }
 .sticker.is-center::after {
-  content: ""; display: block; width: 26%; height: 26%; margin: 37%;
+  content: ""; display: block; width: 22%; height: 22%; margin: 39%;
   border-radius: 50%; background: rgba(0,0,0,0.4);
 }
-.net.centers-unlocked .sticker.is-center { cursor: pointer; }
-
-.toggle {
-  flex: none;
-  display: flex; gap: 8px; align-items: center;
-  font-size: 0.8rem; color: var(--text-dim); min-height: 44px;
-}
-.toggle input { width: 22px; height: 22px; flex: none; }
-.toggle[hidden] { display: none; }
 
 /* ---------- buttons ---------- */
 .row-buttons { flex: none; display: flex; flex-wrap: wrap; gap: 8px; }
+/* the second-thoughts row: smaller, quieter, and it must not wrap onto a
+   second line — four buttons at 44px each is 100px of screen for four things
+   nobody came here to press */
+.row-quiet { gap: 6px; }
+.row-quiet .btn { flex: 1 1 auto; padding: 10px 6px; font-size: 0.82rem; }
 .btn {
   font: inherit; font-size: 0.9rem;
   color: var(--text); background: var(--bg-panel-2);
@@ -221,7 +236,8 @@ body.solving .topbar { display: none; }
 .btn-primary:hover { background: #6aa0ff; border-color: #6aa0ff; }
 .btn-ghost { background: transparent; color: var(--text-dim); }
 .btn-icon { min-width: 46px; padding: 10px 0; font-size: 1.2rem; line-height: 1; }
-#btn-solve { flex: 1 1 100%; }
+#btn-edit-prev { flex: 1 1 0; }
+#btn-edit-next { flex: 2 1 0; }
 
 .message { margin: 0; font-size: 0.85rem; flex: none; }
 .message:empty { display: none; }
@@ -239,12 +255,10 @@ body.solving .topbar { display: none; }
   height: 100%;
   display: block;
   touch-action: none;
-  cursor: grab;
   border-radius: 12px;
   background: radial-gradient(circle at 50% 40%, #1c212c 0%, #12151b 70%);
   border: 1px solid var(--line);
 }
-.cube-canvas.grabbing { cursor: grabbing; }
 .cube-canvas.small {
   position: absolute;
   right: 8px; bottom: 8px;
@@ -258,7 +272,7 @@ body.solving .topbar { display: none; }
 /* ---------- solve ---------- */
 .solve-top {
   flex: none;
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 8px;
   padding-top: var(--safe-t);
 }
 .solve-top .progress { flex: 1 1 auto; margin: 0; }
@@ -266,7 +280,14 @@ body.solving .topbar { display: none; }
 .progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width 0.25s ease; }
 .counter { flex: none; color: var(--text-dim); font-size: 0.78rem; white-space: nowrap; }
 
-/* "one sticker was wrong and I corrected it" — must not be missable */
+/* the microphone, lit while it is actually listening */
+#btn-voice.is-live {
+  color: var(--accent-2);
+  border-color: rgba(55, 211, 154, 0.5);
+  background: rgba(55, 211, 154, 0.12);
+}
+
+/* "one sticker was wrong and I corrected it", and what voice is doing */
 .repair-note {
   flex: none;
   background: rgba(255, 176, 32, 0.12);
@@ -279,6 +300,7 @@ body.solving .topbar { display: none; }
   max-height: 20vh;
   overflow-y: auto;
 }
+.repair-note.is-bad { background: rgba(255, 107, 107, 0.12); border-color: rgba(255,107,107,0.45); color: #ffc9c9; }
 .repair-note[hidden] { display: none; }
 
 .instruction-card {
@@ -294,15 +316,34 @@ body.solving .topbar { display: none; }
 }
 .move-title { font-size: 1.25rem; margin: 0 0 4px; line-height: 1.2; }
 .move-detail { margin: 0; font-size: 0.95rem; color: #cfd6e4; }
-.orientation-note {
-  margin: 8px 0 0;
-  font-size: 0.75rem;
-  color: #8fd9bd;
+
+/* the one moment in this app that deserves an animation */
+.instruction-card.is-solved {
+  border-color: var(--accent-2);
+  background: rgba(55, 211, 154, 0.12);
+  animation: solved-pop 700ms cubic-bezier(0.2, 1.4, 0.4, 1);
 }
+.instruction-card.is-solved .move-title { color: var(--accent-2); }
+@keyframes solved-pop {
+  0% { transform: scale(0.94); }
+  55% { transform: scale(1.035); }
+  100% { transform: scale(1); }
+}
+.confetti {
+  position: fixed; inset: 0; z-index: 60;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+.confetti[hidden] { display: none; }
 
 .transport { flex: none; display: flex; gap: 8px; align-items: stretch; }
 #btn-prev { flex: 1 1 0; }
 .btn-next { flex: 2 1 0; font-size: 1.05rem; min-height: 56px; }
+.btn-restart { flex: none; font-size: 0.85rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .instruction-card.is-solved { animation: none; }
+}
 
 /* ---------- modals ---------- */
 .modal {
@@ -327,6 +368,7 @@ body.solving .topbar { display: none; }
 }
 .modal-card h2 { font-size: 1rem; margin-bottom: 4px; }
 .modal-small { width: min(380px, 100%); text-align: center; }
+.hint { color: var(--text-dim); font-size: 0.8rem; margin: 0; }
 
 /*
  * The scanner card is never taller than the window, and the camera stage is
@@ -345,11 +387,11 @@ body.solving .topbar { display: none; }
   max-height: 100%;
   min-height: 0;
 }
-#scan-tip { font-size: 0.78rem; }
-/* One column until the landscape block below turns it into two. */
+/* Camera, then the cube being built from it, then the buttons — one column
+   until the landscape block below puts the second two beside the first. */
 .scan-layout {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   gap: 8px;
   flex: 1 1 auto;
   min-height: 0;
@@ -410,7 +452,7 @@ body.solving .topbar { display: none; }
 .btn-snap { flex: 1 1 100%; font-size: 1rem; min-height: 52px; }
 .scan-thumbs { display: flex; gap: 8px; justify-content: center; margin: 0 0 8px; }
 .scan-chip {
-  width: 26px; height: 26px; border-radius: 7px;
+  width: 24px; height: 24px; border-radius: 7px;
   border: 1px dashed var(--line); background: transparent;
 }
 .scan-chip.is-done { border-style: solid; border-color: rgba(255, 255, 255, 0.45); }
@@ -433,6 +475,7 @@ body.solving .topbar { display: none; }
  * capped so a 27" monitor does not show one enormous button.
  */
 @media (min-width: 760px) and (min-height: 561px) {
+  :root { --guide-size: 120px; }
   .view { max-width: 1100px; width: 100%; margin: 0 auto; gap: 14px; }
   .view-home, .view-edit {
     display: grid;
@@ -444,22 +487,31 @@ body.solving .topbar { display: none; }
   .view-home .preview-wrap { grid-column: 1; grid-row: 2 / span 3; }
   .view-home .message { grid-column: 2; grid-row: 1; }
   .view-home .home-actions { grid-column: 2; grid-row: 2; align-self: center; }
-  .view-home .footer { grid-column: 2; grid-row: 3; }
-  .view-edit .hint { grid-column: 1 / -1; }
-  .view-edit .palette { grid-column: 1; }
-  .view-edit .net-fit { grid-column: 1; grid-row: 2 / span 3; }
-  .view-edit .toggle { grid-column: 2; grid-row: 2; align-self: start; }
+
+  /*
+   * Every row spelled out, including the second button row.
+   *
+   * There are two .row-buttons on this screen, and a rule that places
+   * "grid-column: 2" without a row lands both of them in the same cell — where
+   * they sit one on top of the other, looking fine and swallowing each other's
+   * taps. Playwright caught it as "Clear intercepts pointer events" on Next.
+   */
+  .view-edit { grid-template-rows: auto auto 1fr auto auto; }
+  .view-edit .net-fit { grid-column: 1; grid-row: 1 / span 5; }
+  .view-edit .guide-row { grid-column: 2; grid-row: 1; align-self: start; }
+  .view-edit .palette { grid-column: 2; grid-row: 2; align-self: end; }
   .view-edit .message { grid-column: 2; grid-row: 3; }
-  .view-edit .row-buttons { grid-column: 2; grid-row: 4; align-content: start; }
-  .view-edit .row-buttons .btn { flex: 0 0 auto; }
+  .view-edit .row-buttons { grid-column: 2; grid-row: 4; }
+  .view-edit .row-quiet { grid-column: 2; grid-row: 5; }
 
   .view-solve { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-                grid-template-rows: auto auto 1fr auto; }
+                grid-template-rows: auto auto 1fr auto auto; }
   .view-solve .solve-top { grid-column: 1 / -1; }
   .view-solve .repair-note { grid-column: 1 / -1; }
-  .view-solve .stage-canvases { grid-column: 1; grid-row: 3 / span 2; }
+  .view-solve .stage-canvases { grid-column: 1; grid-row: 3 / span 3; }
   .view-solve .instruction-card { grid-column: 2; grid-row: 3; align-self: center; max-height: none; }
   .view-solve .transport { grid-column: 2; grid-row: 4; align-self: end; }
+  .view-solve .btn-restart { grid-column: 2; grid-row: 5; }
 }
 
 /*
@@ -471,6 +523,7 @@ body.solving .topbar { display: none; }
  * iPad in landscape is 1024x768 and wants none of this.
  */
 @media (orientation: landscape) and (max-height: 560px) {
+  :root { --guide-size: 68px; }
   .topbar { padding-top: calc(6px + var(--safe-t)); padding-bottom: 6px; }
   .view { padding-top: 8px; gap: 8px; }
 
@@ -485,43 +538,46 @@ body.solving .topbar { display: none; }
   .view-home .size-picker { grid-column: 2; grid-row: 1; }
   .view-home .message { grid-column: 2; grid-row: 2; align-self: end; }
   .view-home .home-actions { grid-column: 2; grid-row: 3; }
-  .view-home .footer { display: none; }
 
-  /* The map is the working surface here and everything beside it is a control,
-     so the split is weighted towards it: even columns put a 4x4 sticker at
-     24.3px on a 667x375 phone, and 1.5fr puts it at 28.5px. */
-  .view-edit { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); grid-template-rows: auto 1fr auto; }
-  .view-edit .net-fit { grid-column: 1; grid-row: 1 / span 3; }
-  .view-edit .hint { display: none; }
-  .view-edit .palette { grid-column: 2; grid-row: 1; }
-  .view-edit .toggle { display: none; }
-  .view-edit .message { grid-column: 2; grid-row: 2; }
-  .view-edit .row-buttons { grid-column: 2; grid-row: 3; }
+  /* five rows, and the second button row gets one of its own — two
+     .row-buttons in the same cell overlap and eat each other's taps */
+  .view-edit { grid-template-rows: auto 1fr auto auto auto; }
+  .view-edit .net-fit { grid-column: 1; grid-row: 1 / span 5; }
+  .view-edit .guide-row { grid-column: 2; grid-row: 1; }
+  .view-edit .palette { grid-column: 2; grid-row: 2; align-self: center; }
+  .view-edit .message { grid-column: 2; grid-row: 3; }
+  .view-edit .row-buttons { grid-column: 2; grid-row: 4; }
+  .view-edit .row-quiet { grid-column: 2; grid-row: 5; }
+  .view-edit .guide-line { font-size: 0.72rem; }
 
-  .view-solve { grid-template-rows: auto auto 1fr auto; }
+  .view-solve { grid-template-rows: auto auto 1fr auto auto; }
   .view-solve .solve-top { grid-column: 1 / -1; grid-row: 1; }
   .view-solve .repair-note { grid-column: 1 / -1; grid-row: 2; max-height: 12vh; }
-  .view-solve .stage-canvases { grid-column: 1; grid-row: 3 / span 2; }
+  .view-solve .stage-canvases { grid-column: 1; grid-row: 3 / span 3; }
   .view-solve .instruction-card { grid-column: 2; grid-row: 3; max-height: 100%; align-self: start; }
   .view-solve .transport { grid-column: 2; grid-row: 4; }
+  .view-solve .btn-restart { grid-column: 2; grid-row: 5; }
   .view-solve .move-title { font-size: 1.05rem; }
   .view-solve .move-detail { font-size: 0.85rem; }
 
   .modal { align-items: start; }
   #scanner .modal-card { width: min(760px, 100%); }
+  /* camera on the left; the cube it is building, and the buttons, on the right */
   #scanner .scan-layout {
     grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
     column-gap: 12px;
     align-items: stretch;
   }
-  #scanner .scan-stage { align-self: center; }
+  #scanner .scan-stage { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
+  #scanner .scan-guide { grid-column: 2; grid-row: 1; align-self: start; }
+  #scanner .scan-side { grid-column: 2; grid-row: 2; }
   /*
-   * 343px of height, a header, six thumbnails, three buttons and — when the
-   * camera will not start — four lines of prose about https do not all fit.
-   * The column scrolls instead, and the order in the markup is what makes that
-   * safe: thumbnails and buttons sit at the top and stay put, and it is the
-   * message underneath them that moves.
+   * 343px of height, a header, a guidance cube, six thumbnails and three
+   * buttons do not all fit when the camera also fails and replaces an empty
+   * message with four lines of prose about https. The column scrolls instead,
+   * and the order in the markup is what makes that safe: the buttons sit at
+   * the top and stay put, and it is the message underneath them that moves.
    */
   #scanner .scan-side { overflow-y: auto; overscroll-behavior: contain; }
   .scan-thumbs { margin-top: 0; }

@@ -1,10 +1,15 @@
 /*
- * app.js — wiring: the three screens, the sticker editor, and the move player.
+ * app.js — wiring: the three screens, the guided sticker editor, and the player.
  *
  * The shape of the app is: scan, then follow the moves. Scanning is the front
  * door and everything else is a fallback, so the home screen is a cube, a size,
  * and one button. A finished scan does not stop to ask anything — it solves and
  * goes straight to the first move.
+ *
+ * Both ways in now follow the same route around the cube — front, three turns
+ * to the left, then tip for the top and the bottom — with a grey cube on screen
+ * turning the way your hands should. That route and the bookkeeping under it
+ * live in guide.js.
  */
 (function () {
   'use strict';
@@ -54,9 +59,11 @@
   // the moves already suit how it is being held and there is nothing to line up.
   var orientedFromScan = false;
 
-  var plan = null;        // { moves, states } after expanding half turns
+  var plan = null;        // { moves, steps, states } after expanding half turns
   var index = 0;
   var busy = false;
+  var celebrated = false;
+  var stopConfetti = null;
 
   function solvedColorState() {
     var s = new Int8Array(stickerCount());
@@ -69,7 +76,7 @@
   // ---- views -------------------------------------------------------------
 
   /*
-   * Square on, not off a corner.
+   * Square on, not off a corner, and fixed.
    *
    * The old camera sat off a corner so three faces showed at once, which is
    * more of the cube but a harder picture to match against the thing in your
@@ -77,30 +84,41 @@
    * turn runs diagonally away from you. Straight on, the front face is a
    * square, the top is a shallow band above it, and a turn reads as up, down,
    * left or right — the same words the instructions use.
+   *
+   * And it does not move. Being able to drag the cube around sounds like a
+   * feature and is not: one accidental swipe and the picture no longer matches
+   * the cube in your hand, with nothing to say it has happened and no way back
+   * to square except by feel.
    */
   var FRONT_VIEW = { yaw: 0, pitch: 30 };
   var BACK_VIEW = { yaw: 180, pitch: -30 };
 
   var previewFront = new CubeView($('preview-front'), {
-    colors: PALETTE, state: colorState, yaw: FRONT_VIEW.yaw, pitch: FRONT_VIEW.pitch,
-    onStickerPick: function (facelet) { paint(facelet); }
+    colors: PALETTE, state: colorState, draggable: false,
+    yaw: FRONT_VIEW.yaw, pitch: FRONT_VIEW.pitch
   });
   var previewBack = new CubeView($('preview-back'), {
-    colors: PALETTE, state: colorState, yaw: BACK_VIEW.yaw, pitch: BACK_VIEW.pitch,
-    onStickerPick: function (facelet) { paint(facelet); }
+    colors: PALETTE, state: colorState, draggable: false,
+    yaw: BACK_VIEW.yaw, pitch: BACK_VIEW.pitch
   });
   var solveFront = new CubeView($('solve-front-canvas'), {
-    colors: PALETTE, state: colorState, yaw: FRONT_VIEW.yaw, pitch: FRONT_VIEW.pitch
+    colors: PALETTE, state: colorState, draggable: false,
+    yaw: FRONT_VIEW.yaw, pitch: FRONT_VIEW.pitch
   });
-  var solveBack = new CubeView($('solve-back-canvas'), {
-    colors: PALETTE, state: colorState, yaw: BACK_VIEW.yaw, pitch: BACK_VIEW.pitch
+
+  // The grey cube on the map screen: the same route the scanner walks, so a
+  // cube typed in by hand is turned the same way as one that is photographed.
+  var editGuide = new CubeGuide($('edit-guide-canvas'), {
+    size: size, colors: PALETTE, state: colorState, startText: ''
   });
 
   function refreshViews() {
-    [previewFront, previewBack].forEach(function (v) { v.setState(colorState); });
+    previewFront.setState(colorState);
+    previewBack.setState(colorState);
+    if (editGuide.view) editGuide.view.dirty = true;
   }
 
-  // ---- palette + net -----------------------------------------------------
+  // ---- palette + the one face being painted ------------------------------
 
   function buildPalette() {
     var wrap = $('palette');
@@ -128,64 +146,46 @@
     wrap.appendChild(eraser);
   }
 
-  // face -> where it sits in the map, in reading order
-  var NET_SLOTS = [
-    { face: 0, label: 'Up' },
-    { face: 4, label: 'Left' },
-    { face: 2, label: 'Front' },
-    { face: 1, label: 'Right' },
-    { face: 5, label: 'Back' },
-    { face: 3, label: 'Down' }
-  ];
-
-  function buildNet() {
+  /*
+   * One face at a time, and the face is the one the guide says you are looking
+   * at — which after the last tip is not drawn the way a flat map would draw
+   * it. `faceCells()` hands back the facelets in the order they appear to
+   * someone holding the cube, so the grid is built straight from that and
+   * there is no orientation to get wrong here.
+   */
+  function buildFace() {
     var net = $('net');
     net.innerHTML = '';
-    // How wide a face is, for the stylesheet to lay out. Custom properties
-    // inherit, so setting it once here reaches every .face below.
     net.style.setProperty('--cube-size', size);
-    NET_SLOTS.forEach(function (slot) {
-      var holder = document.createElement('div');
-      holder.className = 'face-slot';
 
-      var label = document.createElement('span');
-      label.className = 'face-label';
-      label.textContent = slot.label;
-      holder.appendChild(label);
-
-      var face = document.createElement('div');
-      face.className = 'face';
-      for (var i = 0; i < perFace(); i++) {
-        var idx = slot.face * perFace() + i;
-        var cell = document.createElement('button');
-        // Only a 3x3 has a fixed centre; on a 4x4 every sticker is fair game.
-        cell.className = 'sticker' + (isCenter(idx) ? ' is-center' : '');
-        cell.dataset.index = idx;
-        cell.type = 'button';
-        cell.addEventListener('pointerdown', function (e) {
-          painting = true;
-          paint(+e.currentTarget.dataset.index);
-        });
-        cell.addEventListener('pointerenter', function (e) {
-          if (painting) paint(+e.currentTarget.dataset.index);
-        });
-        face.appendChild(cell);
-      }
-      holder.appendChild(face);
-      net.appendChild(holder);
+    var face = document.createElement('div');
+    face.className = 'face';
+    editGuide.faceCells().forEach(function (world) {
+      var cell = document.createElement('button');
+      cell.className = 'sticker' + (isCenter(world) ? ' is-center' : '');
+      cell.dataset.index = world;
+      cell.type = 'button';
+      cell.addEventListener('pointerdown', function (e) {
+        painting = true;
+        paint(+e.currentTarget.dataset.index);
+      });
+      cell.addEventListener('pointerenter', function (e) {
+        if (painting) paint(+e.currentTarget.dataset.index);
+      });
+      face.appendChild(cell);
     });
+    net.appendChild(face);
     fitNet();
+    refreshNet();
   }
 
   /*
-   * Size the map to the box it has, rather than hoping.
+   * Size the face to the box it has, rather than hoping.
    *
-   * Six faces at 4x4 is 96 stickers, and there is no fixed arrangement of them
-   * that fits every phone in both orientations: a cross needs four faces of
-   * width, two columns need three faces of height, and a landscape phone has
-   * 343px of height in total. So both arrangements are measured against the
-   * actual box and the one with the bigger sticker wins. This is what keeps the
-   * whole map on screen without the page scrolling.
+   * A phone in landscape has 343px of height in total, and a 4x4 face has to
+   * fit whatever is left after the palette and the buttons. Measuring is the
+   * only way to be sure the whole thing is on screen without the page
+   * scrolling, at every cube size in both orientations.
    */
   var lastFit = '';
   function fitNet() {
@@ -203,19 +203,7 @@
     var key = w + 'x' + h + ':' + size;
     if (key === lastFit) return;
     lastFit = key;
-
-    var COL_GAP = 10, ROW_GAP = 18, LABEL = 13;
-    var best = null;
-    [[2, 3], [3, 2]].forEach(function (opt) {
-      var cols = opt[0], rows = opt[1];
-      var byWidth = (w - (cols - 1) * COL_GAP) / cols;
-      var byHeight = (h - (rows - 1) * ROW_GAP - rows * LABEL) / rows;
-      var face = Math.min(byWidth, byHeight);
-      if (!best || face > best.face) best = { cols: cols, face: face };
-    });
-
-    net.style.setProperty('--net-cols', best.cols);
-    net.style.setProperty('--net-face', Math.max(48, Math.floor(best.face)) + 'px');
+    net.style.setProperty('--net-face', Math.max(60, Math.floor(Math.min(w, h))) + 'px');
   }
 
   // A 3x3's centre sticker is bolted to the core and never moves, so the editor
@@ -224,14 +212,13 @@
   function isCenter(idx) { return size === 3 && idx % 9 === 4; }
 
   function paint(idx) {
-    if (isCenter(idx) && !$('edit-centers').checked) return;
+    if (isCenter(idx)) return;
     colorState[idx] = selectedColor;
     orientedFromScan = false;   // edited by hand, so no longer "just as photographed"
     delete unsure[idx];   // the user has now had their say on this one
     refreshNet();
     refreshViews();
     save();
-    if (isCenter(idx)) updateHoldLabels();
     setMessage('');
   }
 
@@ -254,53 +241,42 @@
     orientedFromScan = false;
     note = null;
     plan = null;
-    [previewFront, previewBack, solveFront, solveBack].forEach(function (v) { v.setSize(size); });
-    buildNet();
-    refreshNet();
+    [previewFront, previewBack, solveFront].forEach(function (v) { v.setSize(size); });
+    editGuide.setSize(size);
+    editGuide.setState(colorState);
     refreshViews();
-    updateHoldLabels();
+    updateHoldText();
     document.querySelectorAll('.size-option').forEach(function (b) {
       b.classList.toggle('is-active', +b.dataset.size === size);
     });
-    // Only a 3x3 has centre stickers that never move, so only a 3x3 has centres
-    // to unlock. On the others the toggle governs nothing.
-    $('centres-toggle').hidden = size !== 3;
     setMessage('');
     save();
   }
 
   /**
-   * Say how to hold the cube, in whatever terms actually apply.
-   *
-   * Three different situations, and one wording only covers one:
+   * How to hold the cube for the very first face, in whatever terms apply.
    *
    *   - Just scanned. The cube has been turned to match the last photo, so it
    *     is already being held right and there is nothing to look for.
-   *   - Typed in, 3x3. The centres name the faces, so name them.
-   *   - Typed in, 2x2 or 4x4. Nothing names a face — the middle pieces move —
-   *     so the map is the only reference there is, and it says so.
+   *   - A 3x3. The centres name the faces, so name them — and the centre
+   *     sticker sitting there already is the confirmation you are on the right
+   *     face before you paint a single square.
+   *   - A 2x2 or 4x4. Nothing names a face, so any face will do to start.
    */
-  function updateHoldLabels() {
-    var setup = $('hold-note'), solving = $('orientation-note-text');
+  function updateHoldText() {
     if (orientedFromScan) {
-      var text = 'Hold the cube exactly as you did for your last photo — nothing to line up.';
-      setup.textContent = text;
-      solving.textContent = text;
-      return;
+      editGuide.startText = 'Hold the cube exactly as you did for your last photo.';
+    } else if (size !== 3) {
+      editGuide.startText = 'Hold the cube upright with any face toward you — a ' + size + '×' + size +
+        ' has no fixed centre, so it is the order that matters, not which face you start on.';
+    } else {
+      var top = colorState[Cube.CENTERS[0]], front = colorState[Cube.CENTERS[2]];
+      var topName = top < 0 ? 'the top' : COLOR_NAMES[top];
+      var frontName = front < 0 ? 'the front' : COLOR_NAMES[front];
+      editGuide.startText = 'Hold your cube with the ' + topName + ' centre on top and the ' +
+        frontName + ' centre facing you.';
     }
-    if (size !== 3) {
-      var mapText = 'A ' + size + '×' + size + ' has no fixed centre, so the map is the reference: ' +
-        'hold the cube to match the Front panel, with Up on top.';
-      setup.textContent = mapText;
-      solving.textContent = mapText;
-      return;
-    }
-    var top = colorState[Cube.CENTERS[0]], front = colorState[Cube.CENTERS[2]];
-    var topName = top < 0 ? 'the top' : COLOR_NAMES[top];
-    var frontName = front < 0 ? 'the front' : COLOR_NAMES[front];
-    setup.textContent = 'Hold your cube with the ' + topName + ' centre on top and the ' +
-      frontName + ' centre facing you, then fill in every sticker to match.';
-    solving.textContent = 'Keep ' + topName + ' on top and ' + frontName + ' facing you.';
+    if ($('view-edit').hidden === false) updateEditChrome();
   }
 
   // ---- persistence -------------------------------------------------------
@@ -435,11 +411,9 @@
     } else if (mend && !mend.unique) {
       unsure = {};
       mend.changed.forEach(function (group) { group.forEach(function (i) { unsure[i] = true; }); });
-      refreshNet();
-      showView('edit');
-      setMessage('Almost — one sticker is wrong, but there are ' + mend.fixes.length +
+      failTo('Almost — one sticker is wrong, but there are ' + mend.fixes.length +
         ' ways to fix it and I will not guess. The possibilities are outlined on the map; ' +
-        'correct the one you know is wrong.', 'error');
+        'step through the faces and correct the one you know is wrong.');
       return;
     }
 
@@ -469,7 +443,8 @@
 
   /** Nothing to follow, so land on the map with the reason showing. */
   function failTo(message) {
-    showView('edit');
+    showEditor(false);
+    refreshNet();
     setMessage(message, 'error');
   }
 
@@ -566,6 +541,7 @@
     $('repair-note').textContent = note || '';
     $('repair-note').hidden = !note;
     index = 0;
+    endCelebration();
     showView('solve');
     applyIndex();
   }
@@ -575,9 +551,55 @@
     $('view-edit').hidden = which !== 'edit';
     $('view-solve').hidden = which !== 'solve';
     document.body.classList.toggle('solving', which === 'solve');
-    if (which === 'solve') { solveFront.dirty = true; solveBack.dirty = true; }
-    else { previewFront.dirty = true; previewBack.dirty = true; }
+    if (which === 'solve') { solveFront.dirty = true; }
+    else {
+      previewFront.dirty = true;
+      previewBack.dirty = true;
+      voice.stop();
+      endCelebration();
+    }
     if (which === 'edit') fitNet();
+  }
+
+  // ---- the guided map ----------------------------------------------------
+
+  /**
+   * Open the map at the first face.
+   *
+   * `fresh` when this is someone choosing to type a cube in rather than scan
+   * one: that starts from a blank cube, because filling in a face that is
+   * already full of the wrong colours is worse than filling in an empty one.
+   * Every other way in here — a scan that would not assemble, a cube that is
+   * one sticker short of real — keeps what is there, since the whole point is
+   * to fix one square.
+   */
+  function showEditor(fresh) {
+    if (fresh) {
+      for (var i = 0; i < stickerCount(); i++) if (!isCenter(i)) colorState[i] = -1;
+      unsure = {};
+      save();
+    }
+    editGuide.setState(colorState);
+    editGuide.setStep(0, false);
+    buildFace();
+    updateEditChrome();
+    showView('edit');
+  }
+
+  function updateEditChrome() {
+    var info = editGuide.instruction();
+    $('edit-guide-arrow').textContent = info.arrow;
+    $('edit-guide-text').textContent = 'Face ' + (info.step + 1) + ' of ' + CubeGuide.STEPS +
+      ' — ' + info.text;
+    $('btn-edit-next').textContent = editGuide.atEnd() ? 'Solve it →' : 'Next face ›';
+  }
+
+  function editStep(n) {
+    if (n < 0) { showView('setup'); return; }
+    if (n >= CubeGuide.STEPS) { note = null; doSolve(); return; }
+    editGuide.setStep(n, true);
+    buildFace();
+    updateEditChrome();
   }
 
   // ---- player ------------------------------------------------------------
@@ -587,16 +609,15 @@
     var total = plan.steps.length;
     var atEnd = index >= total;
     solveFront.setState(plan.states[index]);
-    solveBack.setState(plan.states[index]);
 
     var upcoming = atEnd ? null : plan.steps[index].move;
     solveFront.showArrowFor = upcoming;
-    solveBack.showArrowFor = upcoming;
-    solveFront.dirty = solveBack.dirty = true;
+    solveFront.dirty = true;
 
     if (atEnd) {
       $('move-title').textContent = 'Solved!';
       $('move-detail').textContent = 'Every face should now be a single colour. ' + total + ' moves. Nice work.';
+      celebrate();
     } else {
       var d = describe(plan.steps[index]);
       $('move-title').textContent = d.title;
@@ -609,7 +630,11 @@
     $('btn-prev').disabled = index === 0;
     $('btn-replay').disabled = index === 0;
     $('btn-next').disabled = atEnd;
-    $('btn-next').textContent = atEnd ? 'Done' : 'Next ›';
+    $('btn-restart').textContent = atEnd ? '↻ Scan another cube' : 'Not solved? Start over';
+    // both classes set the background, and .btn-ghost is declared later, so it
+    // wins whenever it is left on — the button stayed an outline at the end
+    $('btn-restart').classList.toggle('btn-primary', atEnd);
+    $('btn-restart').classList.toggle('btn-ghost', !atEnd);
   }
 
   function stepForward() {
@@ -617,8 +642,6 @@
     var move = plan.steps[index].move;
     busy = true;
     solveFront.showArrowFor = null;
-    solveBack.showArrowFor = null;
-    solveBack.playMove(move, MOVE_MS, null);
     solveFront.playMove(move, MOVE_MS, function () {
       index++;
       busy = false;
@@ -628,24 +651,151 @@
 
   function stepBack() {
     if (busy || !plan || index === 0) return;
+    endCelebration();
     index--;
     applyIndex();
   }
 
   function replayCurrent() {
     if (busy || !plan || index === 0) return;
+    endCelebration();
     index--;
     applyIndex();
     stepForward();
   }
 
+  // ---- the end of it -----------------------------------------------------
+
+  /**
+   * Confetti, a spin, and the card doing a little jump.
+   *
+   * Guarded by `celebrated` because applyIndex() runs on every step and the
+   * last one is not special to it — stepping back and forward over the finish
+   * would otherwise fire the whole thing again each time.
+   */
+  function celebrate() {
+    if (celebrated) return;
+    celebrated = true;
+    var canvas = $('confetti');
+    canvas.hidden = false;
+    stopConfetti = Celebrate.fire(canvas, { colors: PALETTE });
+    $('instruction-card').classList.add('is-solved');
+    spinOnce();
+    setTimeout(function () { if (celebrated) canvas.hidden = true; }, 3000);
+  }
+
+  function endCelebration() {
+    celebrated = false;
+    if (stopConfetti) { stopConfetti(); stopConfetti = null; }
+    $('confetti').hidden = true;
+    $('instruction-card').classList.remove('is-solved');
+  }
+
+  /** One turn of the finished cube, then back to square on. */
+  function spinOnce() {
+    if (Celebrate.reducedMotion()) return;
+    var start = null, from = FRONT_VIEW.yaw;
+    function frame(now) {
+      if (start === null) start = now;
+      var t = Math.min(1, (now - start) / 1500);
+      var e = 1 - Math.pow(1 - t, 3);
+      solveFront.setView(from - 360 * e, FRONT_VIEW.pitch);
+      if (t < 1 && celebrated) requestAnimationFrame(frame);
+      else solveFront.setView(FRONT_VIEW.yaw, FRONT_VIEW.pitch);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---- scanning ----------------------------------------------------------
+
+  function openScanner() {
+    endCelebration();
+    voice.stop();
+    var scanner = new CubeScanner({
+      palette: PALETTE,
+      size: size,                 // scan the size that is selected, nothing else
+      onDone: function (result) {
+        if (result.colors) colorState.set(result.colors);
+        unsure = {};
+        (result.unsure || []).forEach(function (i) { unsure[i] = true; });
+        // A reading that came out whole has been turned to match the last
+        // photo, so the cube in the user's hands is already the right way up.
+        orientedFromScan = result.source === 'device';
+        refreshNet(); refreshViews(); updateHoldText(); save();
+
+        if (result.source === 'failed') {
+          failTo(result.note || 'Those photos did not add up to a real cube. Fix the wrong ' +
+            'stickers on the map, or scan again.');
+          return;
+        }
+
+        /*
+         * Straight on to the answer.
+         *
+         * There is nothing worth asking here: the reading either fits
+         * together as a real cube or it does not, and if it does, the only
+         * reason anyone scanned is to be told what to do next. Checking the
+         * map first was a step that existed because the code had one.
+         */
+        setMessage('Scanned. Working out the moves…', 'ok');
+        note = result.ambiguous
+          ? 'Those photos fit together in more than one way — with no fixed centre to go by, that ' +
+            'can happen. If the cube on screen is not your cube, go back and fix the map.'
+          : null;
+        doSolve();
+      }
+    });
+    scanner.open();
+  }
+
+  // ---- voice -------------------------------------------------------------
+
+  /*
+   * "Next", out loud, because both hands are on the cube.
+   *
+   * Off until asked for, and it says why on the button: this is the one thing
+   * in the app that leaves the device.
+   */
+  var voice = new CubeVoice({
+    onCommand: function (name) {
+      if ($('view-solve').hidden) return;
+      if (name === 'next') stepForward();
+      else if (name === 'back') stepBack();
+      else if (name === 'again') replayCurrent();
+    },
+    onState: function (state, detail) {
+      var btn = $('btn-voice');
+      btn.classList.toggle('is-live', state === 'listening');
+      btn.setAttribute('aria-pressed', state === 'listening' ? 'true' : 'false');
+      if (state === 'listening') setSolveNote('Listening — say “next”, “back” or “again”.');
+      else if (state === 'blocked') setSolveNote('Microphone access was refused, so voice is off.', true);
+      else if (state === 'no-mic') setSolveNote('No microphone on this device, so voice is off.', true);
+      else if (state === 'off') setSolveNote('');
+      if (detail) console.info('voice:', state, detail);
+    }
+  });
+
+  /** The one line above the cube, used by voice and by an automatic repair. */
+  function setSolveNote(text, bad) {
+    var el = $('repair-note');
+    if (!text && note) { el.textContent = note; el.hidden = false; return; }
+    el.textContent = text || '';
+    el.hidden = !text;
+    el.classList.toggle('is-bad', !!bad);
+  }
+
   // ---- events ------------------------------------------------------------
 
   function wire() {
-    $('btn-solve').addEventListener('click', function () { note = null; doSolve(); });
-    $('btn-edit').addEventListener('click', function () { showView('edit'); });
+    $('btn-edit').addEventListener('click', function () { showEditor(true); });
     $('btn-home').addEventListener('click', function () { showView('setup'); });
     $('btn-back').addEventListener('click', function () { showView('setup'); });
+    $('btn-scan').addEventListener('click', openScanner);
+    $('btn-restart').addEventListener('click', openScanner);
+
+    $('btn-edit-next').addEventListener('click', function () { editStep(editGuide.step + 1); });
+    $('btn-edit-prev').addEventListener('click', function () { editStep(editGuide.step - 1); });
+    $('btn-solve').addEventListener('click', function () { note = null; doSolve(); });
 
     $('btn-example').addEventListener('click', function () {
       /*
@@ -663,13 +813,8 @@
       colorState.set(model.applySeq(solvedColorState(), scramble));
       orientedFromScan = false;
       unsure = {};
-      refreshNet(); refreshViews(); updateHoldLabels(); save();
+      refreshNet(); refreshViews(); updateHoldText(); save();
       setMessage('Scrambled. Solve it to see the way back.', 'ok');
-    });
-    $('btn-solved').addEventListener('click', function () {
-      colorState.set(solvedColorState());
-      refreshNet(); refreshViews(); updateHoldLabels(); save();
-      setMessage('');
     });
     $('btn-clear').addEventListener('click', function () {
       for (var i = 0; i < stickerCount(); i++) if (!isCenter(i)) colorState[i] = -1;
@@ -678,55 +823,18 @@
         ? 'Cleared — the centres stay put because they never move on a 3×3.'
         : 'Cleared. A ' + size + '×' + size + ' has no fixed centres, so everything went.');
     });
-    $('edit-centers').addEventListener('change', function (e) {
-      $('net').classList.toggle('centers-unlocked', e.target.checked);
-    });
     document.querySelectorAll('.size-option').forEach(function (button) {
       button.addEventListener('click', function () { setSize(+button.dataset.size); });
-    });
-
-    $('btn-scan').addEventListener('click', function () {
-      var scanner = new CubeScanner({
-        palette: PALETTE,
-        size: size,                 // scan the size that is selected, nothing else
-        onDone: function (result) {
-          if (result.colors) colorState.set(result.colors);
-          unsure = {};
-          (result.unsure || []).forEach(function (i) { unsure[i] = true; });
-          // A reading that came out whole has been turned to match the last
-          // photo, so the cube in the user's hands is already the right way up.
-          orientedFromScan = result.source === 'device';
-          refreshNet(); refreshViews(); updateHoldLabels(); save();
-
-          if (result.source === 'failed') {
-            showView('edit');
-            setMessage(result.note || 'Those photos did not add up to a real cube. Fix the wrong ' +
-              'stickers on the map, or scan again.', 'error');
-            return;
-          }
-
-          /*
-           * Straight on to the answer.
-           *
-           * There is nothing worth asking here: the reading either fits
-           * together as a real cube or it does not, and if it does, the only
-           * reason anyone scanned is to be told what to do next. Checking the
-           * map first was a step that existed because the code had one.
-           */
-          setMessage('Scanned. Working out the moves…', 'ok');
-          note = result.ambiguous
-            ? 'Those photos fit together in more than one way — with no fixed centre to go by, that ' +
-              'can happen. If the cube on screen is not your cube, go back and fix the map.'
-            : null;
-          doSolve();
-        }
-      });
-      scanner.open();
     });
 
     $('btn-next').addEventListener('click', stepForward);
     $('btn-prev').addEventListener('click', stepBack);
     $('btn-replay').addEventListener('click', replayCurrent);
+
+    if (CubeVoice.supported()) {
+      $('btn-voice').hidden = false;
+      $('btn-voice').addEventListener('click', function () { voice.toggle(); });
+    }
 
     document.addEventListener('keydown', function (e) {
       if ($('view-solve').hidden) return;
@@ -737,14 +845,13 @@
     document.addEventListener('pointerup', function () { painting = false; });
 
     /*
-     * The map is sized to its box, so anything that changes the box has to
+     * The face is sized to its box, so anything that changes the box has to
      * refit it, and turning the phone is only the obvious one. A message
-     * appearing underneath takes 20-40px out of the box; on the phone profiles
-     * measured there is enough slack around the map to absorb that, but it is
-     * slack, not a guarantee — the map is centred inside an overflow: hidden
-     * parent, so a fit that is height-limited when the box shrinks loses a row
-     * off the top and the bottom with nothing to show for it. Watching the box
-     * itself covers every cause at once, including the ones nobody thought of.
+     * appearing underneath takes 20-40px out of the box, and the face is
+     * centred inside an overflow: hidden parent, so a fit that is no longer
+     * right loses a row off the top and the bottom with nothing to show for
+     * it. Watching the box itself covers every cause at once, including the
+     * ones nobody thought of.
      */
     if (typeof ResizeObserver === 'function') {
       new ResizeObserver(fitNet).observe(document.querySelector('.net-fit'));
@@ -757,9 +864,9 @@
 
   load();
   buildPalette();
-  buildNet();
+  updateHoldText();
+  buildFace();
   refreshNet();
   refreshViews();
-  updateHoldLabels();
   wire();
 })();

@@ -27,29 +27,19 @@
  *   - vertical overflow: 0px on all three screens at all three cube sizes.
  *   - horizontal overflow: 0px.
  *   - controls: 44px+, which is Apple's own minimum.
- *   - stickers: the map is measured and fitted to its box by app.js, so this
- *     is whatever is left once the palette and the buttons have had theirs.
- *     Measured, smallest sticker on the map:
- *
- *                              2x2    3x3    4x4
- *       iphone-se   375x667     54   31.2     26
- *       ...landscape 667x375    57     33   27.5
- *       iphone-15   393x659     57     33   27.5
- *       ...landscape 734x343    59   34.1   28.5
- *       pixel-7     412x839     80   41.2     39
- *       ...landscape 863x360    63   36.5   30.5
- *
- *     Bar: 24px. Stickers get a bar of their own, and a low one, because 96 of
- *     them at 44px would need a 700px-wide screen — a 4x4 map that fits a
- *     375px phone without scrolling cannot do better than about 26px, and it
- *     is the fallback for typing a cube in by hand. Scanning is the way in.
+ *   - stickers: the editor shows one face at a time and app.js fits it to the
+ *     box, so a sticker is whatever is left once the guidance cube, the
+ *     palette and the buttons have had theirs. Six faces at once could not do
+ *     better than 26px for a 4x4 on a 375px phone; one face is three times
+ *     that. Bar: 44px, the same as every other control — with one face there
+ *     is no reason for stickers to have a bar of their own any more.
  */
 var { test, expect } = require('@playwright/test');
 
 var TAP_MIN = 44;       // px, Apple HIG
-var STICKER_MIN = 24;   // px; the 4x4 map on the smallest screen measures 26
+var STICKER_MIN = 44;   // px; one face at a time, so a sticker is a control too
 
-var CONTROLS = 'button, input, summary, label.toggle';
+var CONTROLS = 'button, input, summary';
 
 // ---------------------------------------------------------------- helpers
 
@@ -105,9 +95,9 @@ function tallOverflow(page) {
 /**
  * Every visible control that is too small for a finger.
  *
- * A checkbox or radio inside a <label> is let off on its own size: the label
- * is what you actually tap, so the label is what is measured. Stickers have
- * their own, smaller bar — 96 of them cannot each be 44px on a phone.
+ * Stickers are measured separately, by smallestSticker, purely so a failure
+ * says which of the two things went wrong — the bar is the same 44px now that
+ * the editor shows one face at a time.
  */
 function smallControls(page, scope, min) {
   return page.evaluate(function (arg) {
@@ -117,12 +107,8 @@ function smallControls(page, scope, min) {
     root.querySelectorAll(arg.sel).forEach(function (el) {
       if (el.classList.contains('sticker')) return;
       if (el.closest('[hidden]')) return;
-      if (el.type === 'hidden') return;
-      var target = el;
-      if ((el.type === 'checkbox' || el.type === 'radio') && el.closest('label')) {
-        target = el.closest('label');
-      }
-      var r = target.getBoundingClientRect();
+      if (el.hidden || el.type === 'hidden') return;
+      var r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) return;           // display:none
       if (getComputedStyle(el).visibility === 'hidden') return;
       if (r.width + 0.5 < arg.min || r.height + 0.5 < arg.min) {
@@ -168,9 +154,18 @@ function offScreen(page, sels) {
   }, sels);
 }
 
+/** Back to the home screen from wherever we are — each screen has its own way. */
+async function goHome(page) {
+  await page.evaluate(function () {
+    if (!document.getElementById('view-solve').hidden) document.getElementById('btn-back').click();
+    else if (!document.getElementById('view-edit').hidden) document.getElementById('btn-home').click();
+  });
+  await expect(page.locator('#view-setup')).toBeVisible();
+}
+
 /** The size picker lives on the home screen, so this always starts there. */
 async function pickSize(page, n) {
-  await page.locator('#btn-home').click({ timeout: 2000 }).catch(function () { /* already home */ });
+  await goHome(page);
   await page.locator('.size-option[data-size="' + n + '"]').click();
 }
 
@@ -245,7 +240,7 @@ test('nothing overflows sideways, at any cube size', async function ({ page }) {
   }
 });
 
-test('the sticker map is big enough to hit, at any cube size', async function ({ page }) {
+test('the face being painted is big enough to hit, at any cube size', async function ({ page }) {
   for (var n of [2, 3, 4]) {
     await pickSize(page, n);
     await openMap(page);
@@ -253,13 +248,11 @@ test('the sticker map is big enough to hit, at any cube size', async function ({
     expect(got, n + 'x' + n + ' stickers are ' + got + 'px').toBeGreaterThanOrEqual(STICKER_MIN);
 
     /*
-     * And still whole once something is written under it. The map is fitted to
-     * its box and centred inside an overflow: hidden parent, so a message
-     * appearing below takes height out of the box — and a map that does not
+     * And still whole once something is written under it. The face is fitted
+     * to its box and centred inside an overflow: hidden parent, so a message
+     * appearing below takes height out of the box — and a face that does not
      * refit loses a row off the top and the bottom with nothing to show for
-     * it. On these six profiles the fit has slack to absorb it either way, so
-     * this is a guard rather than a reproduction: it holds the ResizeObserver
-     * in app.js to account on any profile where the slack runs out.
+     * it. The ResizeObserver in app.js is what this holds to account.
      */
     await page.locator('#btn-example').click();
     await page.waitForTimeout(150);
@@ -274,10 +267,39 @@ test('the sticker map is big enough to hit, at any cube size', async function ({
       };
     });
     Object.keys(clipped).forEach(function (side) {
-      expect(clipped[side], n + 'x' + n + ' map is cut off at the ' + side +
+      expect(clipped[side], n + 'x' + n + ' face is cut off at the ' + side +
         ' by ' + clipped[side] + 'px').toBeLessThanOrEqual(0);
     });
   }
+});
+
+/*
+ * The map is a guided walk now: one face, the grey cube beside it showing
+ * which face and how to get to the next, six steps, then solve. The thing
+ * being checked here is that the walk holds together — the same six-step route
+ * the scanner uses, ending on a button that solves rather than one that asks
+ * for a seventh face.
+ */
+test('the map walks six faces, one at a time', async function ({ page }) {
+  await openMap(page);
+  await expect(page.locator('#edit-guide-canvas')).toBeVisible();
+
+  var seen = [];
+  for (var i = 0; i < 6; i++) {
+    // exactly one face on screen, never the whole cube
+    var faces = await page.locator('#net .face').count();
+    expect(faces, 'faces on screen at step ' + (i + 1)).toBe(1);
+    seen.push(await page.locator('#edit-guide-text').textContent());
+    if (i < 5) {
+      await page.locator('#btn-edit-next').click();
+      await page.waitForTimeout(1000);   // the cube turns between faces
+    }
+  }
+
+  expect(seen[0], 'the first step should say how to hold it').toMatch(/Face 1 of 6/);
+  expect(seen[5], 'the last step').toMatch(/Face 6 of 6/);
+  expect(new Set(seen).size, 'each step should say something different').toBe(6);
+  await expect(page.locator('#btn-edit-next')).toHaveText(/Solve/);
 });
 
 test('every control is big enough to hit', async function ({ page }) {
@@ -313,21 +335,36 @@ test('the scanner fits on the screen with its buttons reachable', async function
   // a max-height taller than its grid row, centred, overflowed both ends and
   // left the card looking fine while the preview sat outside it
   var off = await offScreen(page,
-    ['#scanner .modal-card', '.scan-stage', '#scan-capture', '#scan-undo', '#scan-close']);
+    ['#scanner .modal-card', '.scan-stage', '#scan-guide-canvas',
+     '#scan-capture', '#scan-undo', '#scan-close']);
   expect(off, 'off screen: ' + JSON.stringify(off)).toEqual([]);
 
-  // and inside the card it lives in, not lapping over the text above it
+  /*
+   * Two cubes, both of them on screen. The second one is what lets someone
+   * check the read before a solution is written for it, and a scanner that
+   * quietly drops it below the fold on the smallest phone has lost the point
+   * of this screen rather than a nicety.
+   */
+  var both = await page.evaluate(function () {
+    var stage = document.querySelector('.scan-stage').getBoundingClientRect();
+    var guide = document.getElementById('scan-guide-canvas').getBoundingClientRect();
+    return { camera: Math.round(stage.height), guide: Math.round(guide.height) };
+  });
+  expect(both.camera, 'the camera preview is ' + both.camera + 'px tall').toBeGreaterThan(80);
+  expect(both.guide, 'the cube being built is ' + both.guide + 'px tall').toBeGreaterThan(50);
+
+  // and inside the card it lives in, not lapping over the heading above it
   var escaped = await page.evaluate(function () {
     var card = document.querySelector('#scanner .modal-card').getBoundingClientRect();
     var stage = document.querySelector('.scan-stage').getBoundingClientRect();
-    var tip = document.getElementById('scan-tip').getBoundingClientRect();
+    var title = document.getElementById('scan-title').getBoundingClientRect();
     var why = [];
     if (stage.top < card.top - 0.5 || stage.bottom > card.bottom + 0.5) {
       why.push('the preview is outside its card (' + Math.round(stage.top) + '-' +
                Math.round(stage.bottom) + ' vs ' + Math.round(card.top) + '-' + Math.round(card.bottom) + ')');
     }
-    if (stage.top < tip.bottom - 0.5 && stage.right > tip.left && stage.left < tip.right) {
-      why.push('the preview covers the tip by ' + Math.round(tip.bottom - stage.top) + 'px');
+    if (stage.top < title.bottom - 0.5 && stage.right > title.left && stage.left < title.right) {
+      why.push('the preview covers the heading by ' + Math.round(title.bottom - stage.top) + 'px');
     }
     return why;
   });
@@ -352,7 +389,7 @@ test('the scanner fits on the screen with its buttons reachable', async function
    */
   var clipped = await page.evaluate(function () {
     var out = [];
-    ['#scan-title', '#scan-tip'].forEach(function (sel) {
+    ['#scan-title', '#scan-guide-text'].forEach(function (sel) {
       var el = document.querySelector(sel);
       var lost = el.scrollHeight - el.clientHeight;
       if (lost > 1) out.push({ sel: sel, lostPx: lost });
@@ -372,12 +409,20 @@ test('the solve screen shows one move at a time, with nothing to press but Next'
     var o = await overflow(page);
     expect(o.px, 'solve view overflows by ' + o.px + 'px: ' + JSON.stringify(o.blame)).toBeLessThanOrEqual(0);
 
-    var off = await offScreen(page, ['#btn-next', '#btn-prev', '#btn-replay', '.instruction-card']);
+    var off = await offScreen(page,
+      ['#btn-next', '#btn-prev', '#btn-replay', '#btn-restart', '.instruction-card']);
     expect(off, 'off screen: ' + JSON.stringify(off)).toEqual([]);
 
     // play is gone, and so is the speed slider that only existed to serve it
     await expect(page.locator('#btn-play')).toHaveCount(0);
     await expect(page.locator('#speed')).toHaveCount(0);
+    // and so is the second cube: one fixed view, nothing to drag, nothing in
+    // the corner showing three faces you are not being asked to look at
+    await expect(page.locator('#solve-back-canvas')).toHaveCount(0);
+    await expect(page.locator('#view-solve .cube-canvas')).toHaveCount(1);
+
+    // the way out when the cube in your hand stopped matching the one on screen
+    await expect(page.locator('#btn-restart')).toBeVisible();
 
     /*
      * Every half turn is split into two quarter turns, so nothing in the list
@@ -393,6 +438,42 @@ test('the solve screen shows one move at a time, with nothing to press but Next'
     }
     expect(seen.filter(Boolean).length, 'four moves in a row should each say something').toBe(4);
   });
+
+/*
+ * The end of a solve, and the way out of a bad one.
+ *
+ * One profile, not six: what this checks is behaviour, not layout, and it
+ * costs a whole solve in real time to get there — a 2x2, because eleven moves
+ * at a second each is the shortest honest route to the finish.
+ */
+test('finishing throws confetti, and there is a way back when it did not', async function ({ page }, testInfo) {
+  test.skip(testInfo.project.name !== 'iphone-se', 'behaviour, not layout — one profile is enough');
+  test.setTimeout(120000);
+
+  await pickSize(page, 2);
+  await goToSolve(page);
+
+  // mid-solve it is an escape hatch, and says so
+  await expect(page.locator('#btn-restart')).toHaveText(/Not solved/);
+
+  var total = parseInt((await page.locator('#move-counter').textContent()).match(/of (\d+)/)[1], 10);
+  for (var i = 0; i < total; i++) {
+    await page.locator('#btn-next').click();
+    await page.waitForTimeout(1250);
+  }
+
+  await expect(page.locator('#move-title')).toHaveText(/Solved/);
+  await expect(page.locator('#instruction-card')).toHaveClass(/is-solved/);
+  await expect(page.locator('#confetti')).toBeVisible();
+  var o = await tallOverflow(page);
+  expect(o.px, 'the finished screen is ' + o.px + 'px too tall').toBeLessThanOrEqual(0);
+
+  // and the button that was an escape hatch is now the obvious next thing —
+  // same button, same handler, so pressing it here covers both
+  await expect(page.locator('#btn-restart')).toHaveText(/Scan another/);
+  await page.locator('#btn-restart').click();
+  await expect(page.locator('#scanner')).toBeVisible();
+});
 
 /*
  * The notch and the home indicator.

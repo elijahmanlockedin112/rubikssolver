@@ -4,7 +4,7 @@
   "description": "Enter your Rubik's cube colors (or scan them) and follow an animated 3D solution, turn by turn.",
   "main": "js/cube.js",
   "scripts": {
-    "test": "node test/wiring.test.js && node test/autosnap.test.js 15 && node test/render.test.js && node test/cuben.test.js && node test/solver.test.js 300 && node test/kociemba.test.js 60 && node test/solver2.test.js 150 && node test/tpr.test.js 12 && node test/solver4.test.js 20 && node test/detect.test.js 60 && node test/assemble.test.js 150 && node test/assemble4.test.js 60 && node test/colors.test.js 300 && node test/repair.test.js 200 && node test/realshots.test.js",
+    "test": "node test/wiring.test.js && node test/guide.test.js && node test/autosnap.test.js 15 && node test/render.test.js && node test/cuben.test.js && node test/solver.test.js 300 && node test/kociemba.test.js 60 && node test/solver2.test.js 150 && node test/tpr.test.js 12 && node test/solver4.test.js 20 && node test/detect.test.js 60 && node test/assemble.test.js 150 && node test/assemble4.test.js 60 && node test/colors.test.js 300 && node test/repair.test.js 200 && node test/realshots.test.js",
     "test:scan": "node test/detect.test.js 120 && node test/assemble.test.js 300 && node test/colors.test.js 400 && node test/realshots.test.js",
     "test:solver": "node test/solver.test.js 1000",
     "test:fast": "node test/kociemba.test.js 200",

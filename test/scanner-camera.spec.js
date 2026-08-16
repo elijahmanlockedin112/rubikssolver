@@ -33,12 +33,16 @@ async function scan(page, size, seconds) {
   await expect(page.locator('#btn-scan')).toBeVisible({ timeout: 30000 });
   await page.locator('.size-option[data-size="' + size + '"]').click();
 
-  // count the shutter blinks and the live-loop ticks from the outside
+  // count the shutter blinks, the live-loop ticks, and the faces landing on
+  // the second cube — all from the outside
   await page.evaluate(function () {
     window.__flashes = 0;
     window.__ticks = 0;
+    window.__guided = 0;
     var orig = window.CubeScanner.prototype.loop;
     window.CubeScanner.prototype.loop = function () { window.__ticks++; return orig.apply(this, arguments); };
+    var rec = window.CubeScanner.prototype.recordGuide;
+    window.CubeScanner.prototype.recordGuide = function () { window.__guided++; return rec.apply(this, arguments); };
     document.getElementById('scan-flash')
       .addEventListener('animationstart', function () { window.__flashes++; });
   });
@@ -54,16 +58,25 @@ async function scan(page, size, seconds) {
   }
 
   return Object.assign({ closedAfter: closedAfter }, await page.evaluate(function () {
-    var stickers = document.querySelectorAll('#net .sticker');
+    /*
+     * The map on screen is one face at a time now, so counting painted
+     * stickers there says nothing about the other five. The cube itself is
+     * saved to localStorage on every change, which is the whole of it and is
+     * observable from out here — a sticker still at -1 is one the scan never
+     * filled in.
+     */
+    var stored = [];
+    try { stored = JSON.parse(localStorage.getItem('rubiks-cube-coach.state')) || []; } catch (e) { /* private mode */ }
     return {
       faces: document.querySelectorAll('.scan-chip.is-done').length,
       flashes: window.__flashes,
       ticks: window.__ticks,
+      guided: window.__guided,
       open: !document.getElementById('scanner').hidden,
       scanMessage: document.getElementById('scan-message').textContent.trim(),
       setupMessage: document.getElementById('setup-message').textContent.trim(),
-      painted: [].filter.call(stickers, function (s) { return !!s.style.background; }).length,
-      total: stickers.length
+      painted: stored.filter(function (v) { return v >= 0; }).length,
+      total: stored.length
     };
   }));
 }
@@ -105,9 +118,17 @@ test('the scanner reads a whole cube without being touched', async function ({ p
   var got = await scan(page, meta.size, 25);
   expect(got.closedAfter, 'the scanner never finished; it had ' + got.faces + ' of 6').not.toBeNull();
   expect(got.faces, 'faces captured').toBe(6);
-  expect(got.painted, 'the map should be filled in').toBe(got.total);
+  expect(got.painted, 'every sticker should have a colour').toBe(got.total);
   expect(got.total, 'a ' + meta.size + 'x' + meta.size + ' has ' + (6 * meta.size * meta.size) + ' stickers')
     .toBe(6 * meta.size * meta.size);
+
+  /*
+   * Five, not six, and for the same reason as the blinks below: the sixth
+   * photo goes straight to assembling the cube, so there is no seventh face to
+   * turn towards and nothing to paint onto the second cube that the finished
+   * read is not about to replace.
+   */
+  expect(got.guided, 'faces painted onto the cube being built on screen').toBe(5);
 
   /*
    * Five, not six. The sixth photo closes the scanner in the same tick it is

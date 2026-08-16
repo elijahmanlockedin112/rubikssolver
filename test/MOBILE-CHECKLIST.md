@@ -54,6 +54,29 @@ that refused the camera.
       and there is nothing to confirm on the way. If it lands on the map
       instead, read the message: that is the reading not adding up to a real
       cube, which is a scanning problem, not a flow one.
+
+### 2b. The second cube — the whole reason this screen has two of them
+
+- [ ] The cube under the camera preview **paints in the face you just took**,
+      and it is the right colours. Hold your cube next to the phone and compare
+      them square by square. This is the one thing that can catch a bad read
+      before a solution gets written for it.
+- [ ] Red and orange, again, but here: do they come out as red and orange on
+      the little cube, or as two browns? The colours it shows are the ones
+      actually photographed with the chroma pushed up, not the app's final
+      opinion — a face that looks wrong here is a face that was read badly.
+- [ ] It **holds the face for about two thirds of a second, then turns**. Is
+      that long enough to look at? Too long to wait for?
+- [ ] The turn matches the words. "Turn the cube LEFT" and the cube on screen
+      turning the same way you would: do they agree, or does the picture say
+      one thing and the sentence another? Try it without reading the words at
+      all — the turn is meant to be the instruction.
+- [ ] **Follow the route.** Three turns to the left, then tip toward you, then
+      tip twice more. Does it end up reading your cube correctly? Then ignore
+      the route entirely and show it faces in a random order and any way up —
+      that must still work, because the assembler does not care and the route
+      is guidance, not a requirement.
+- [ ] **Redo last** takes the face back off the little cube and turns it back.
 - [ ] The thumbnails along the bottom fill in one per snap.
 - [ ] **Redo last** goes back exactly one face, and the outline goes green again
       rather than staying amber at the face you just threw away.
@@ -136,10 +159,24 @@ That is a claim about how it feels, and no test can check it.
       above it. Hold your cube the same way. Does the picture match what is in
       your hand well enough to copy the move without thinking about it? This is
       the one change here that is purely a judgement call.
-- [ ] Dragging the big cube spins it, and dragging it does **not** scroll or
-      bounce the page. (`touch-action: none` and `overscroll-behavior: none`
-      should see to that.)
-- [ ] Dragging the small back-view cube spins that one.
+- [ ] **The cube does not move, and cannot be moved.** Swipe it, flick it, drag
+      across it while stepping: it stays square on. Dragging must also not
+      scroll or bounce the page. (`touch-action: none` and
+      `overscroll-behavior: none` should see to that.)
+- [ ] **A move that turns a face you cannot see.** A `D` turns the bottom layer,
+      of which only the front row is visible from square on. Is the arrow plus
+      the sentence enough, or does that move need the back view putting back?
+- [ ] **Say "next".** Press the microphone, allow the permission, and step a
+      whole solve by voice with both hands on the cube — which is the point of
+      it. Then: does it mishear anything as "next"? Does it keep listening
+      after a pause, after locking the screen, after a notification? Does it
+      stop when you press the button again, and does the recording indicator in
+      the status bar actually go out?
+- [ ] **"Not solved? Start over"** — press it mid-solve, and it goes straight
+      back to the camera.
+- [ ] **The finish.** Confetti, the cube turning once, the card jumping. Then
+      Reduce Motion on and again: it should be a slow drift with no spin and no
+      jump, but still obviously a celebration rather than nothing.
 - [ ] **Nothing scrolls, and nothing is cut off.** This is the point of the
       layout: html and body are `overflow: hidden`, so anything that does not
       fit is clipped rather than scrolled. Check the bottom of all three
@@ -201,6 +238,12 @@ portrait and landscape:
 - **vertical overflow: every screen, at every cube size, must fit the window
   without scrolling** — including after a move has been made and the wording
   has changed under it
+- the map walking six faces one at a time, one face on screen at each step,
+  ending on a button that solves rather than asking for a seventh
+- both cubes on the scanner screen, neither of them squeezed off it
+- the finish: confetti, the card marked solved, and the escape-hatch button
+  turning into "scan another" (iPhone SE only — it is behaviour, not layout,
+  and it costs a whole solve in real time)
 - horizontal overflow at every cube size, on all three screens and with the
   scanner open
 - every button, input, summary and label at 44px or more, on all three screens

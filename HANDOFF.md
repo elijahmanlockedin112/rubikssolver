@@ -450,6 +450,65 @@ figures above, and that is the trade: fitting a 4x4's 96 stickers into a screen
 that also cannot scroll is what costs it. The full six-profile table is in the
 header of `test/mobile-layout.spec.js`.
 
+### Guidance — the route round the cube (js/guide.js)
+
+Both ways in walk the same six faces in the same order: front, three turns to
+the LEFT, then tip toward you, then tip twice more. A grey cube fills in as
+faces arrive and turns the way your hands should; in the scanner it sits under
+the camera preview, in the editor beside the face being painted.
+
+The part worth not rediscovering is the bookkeeping. Once the cube has been
+turned, the face toward you is not the face it was, and the top of what you see
+is not the top of that face — after the last tip the bottom face arrives a
+quarter turn round from the way a flat map draws it. Nothing in guide.js
+reasons about that case by case. It carries the accumulated whole-cube rotation
+as one permutation `W`, where
+
+    currentState[i] = original[W[i]]
+
+so `faceCells()` is `W` applied to the front face, and writing a photo back into
+the cube's own frame is the same identity read the other way. `setStep` replays
+the route from the start rather than inverting anything, so stepping back cannot
+drift.
+
+**Get this wrong and nothing complains.** The colours land in the wrong places
+and a different cube from the one in your hands is solved, confidently. That is
+what `test/guide.test.js` is for: it turns a numbered cube — every facelet
+distinguishable — through the whole route by applying the rotations one at a
+time, reads the front face at each step, and checks the six faces rebuild the
+original exactly at 2x2, 3x3 and 4x4. The two paths (composed vs. applied
+one-by-one) are independent, so it is not circular.
+
+The route is guidance, not a requirement: the centre sticker still says which
+face is which and the assembler still tries all rotations, so any order and any
+way up comes out right. Someone who ignores the arrows just sees the little cube
+paint faces into the wrong slots for a while.
+
+### Everything else this round
+
+- **The solve screen is one cube, fixed.** The back-view inset is gone, dragging
+  is off (`draggable: false`), and the orientation banner is gone with it. A
+  swipe that quietly rotated the picture away from the cube in your hand was
+  worse than not being able to look round.
+- **The editor is one face at a time**, on the same route. That took 4x4
+  stickers from 26px to about 80px on a 375px phone. It also assumes the
+  standard colour scheme, since the first face is named by its centre — the
+  "change the centre colours" toggle is gone, and an unusual cube should be
+  scanned rather than typed.
+- **Voice** (`js/voice.js`) is opt-in, off by default, and is the only thing in
+  the app that leaves the device — Safari and Chrome both transcribe on their
+  own servers. Two things make a naive version unusable and are worth keeping:
+  every command restarts recognition (interim results otherwise re-fire the
+  same word as the transcript firms up), and `onend` restarts it for as long as
+  the button is lit, because recognition stops on its own constantly.
+- **Confetti** (`js/celebrate.js`) is guarded by a `celebrated` flag, because
+  `applyIndex()` runs on every step and stepping back and forth over the finish
+  would otherwise fire it each time.
+- **Two `.row-buttons` in one grid cell** is the layout bug to remember: a rule
+  that sets `grid-column` without `grid-row` puts both rows in the same cell,
+  where they overlap, look fine, and swallow each other's taps. Playwright
+  caught it as "Clear intercepts pointer events" on Next.
+
 ## Commands
 
 ```bash

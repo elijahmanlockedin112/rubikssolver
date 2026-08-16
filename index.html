@@ -14,9 +14,9 @@
   Three screens, one at a time, each exactly as tall as the window.
 
   The page itself never scrolls — body is a flex column of fixed height and the
-  one flexible row on each screen (the cube, or the sticker map) is what gives
-  up space. A phone that has to be scrolled to reach the next move is a phone
-  being held in one hand next to a cube being held in the other.
+  one flexible row on each screen (the cube, or the face being painted) is what
+  gives up space. A phone that has to be scrolled to reach the next move is a
+  phone being held in one hand next to a cube being held in the other.
 -->
 <body>
 
@@ -42,41 +42,39 @@
 
   <div class="home-actions">
     <button id="btn-scan" class="btn btn-scan">📷 Scan my cube</button>
+    <p class="flat-note">Best on a flat surface in even light — stand the cube on a table and hold the phone over it.</p>
     <button id="btn-edit" class="btn btn-ghost">Type the colours in instead</button>
   </div>
-
-  <p class="footer">
-    Kociemba's two-phase search for the 3×3, a full distance table for the 2×2,
-    and Shuang Chen's TPR reduction solver — ported under its MIT licence — for
-    the 4×4. Everything runs on this device.
-  </p>
 </main>
 
-<!-- ───────────────────── the map, for typing or fixing ───────────────────── -->
+<!-- ──────────── the map, one face at a time, same route as the scan ──────────── -->
 <main id="view-edit" class="view view-edit" hidden>
-  <p class="hint" id="hold-note"></p>
+  <div class="guide-row">
+    <canvas id="edit-guide-canvas" class="guide-canvas"></canvas>
+    <p class="guide-line">
+      <span class="guide-arrow" id="edit-guide-arrow" aria-hidden="true"></span>
+      <span id="edit-guide-text"></span>
+    </p>
+  </div>
 
-  <div class="palette" id="palette" role="toolbar" aria-label="Color picker"></div>
-
-  <!-- app.js measures this box and sizes the six faces to fill it, so the map
-       fits the screen at 2x2, 3x3 and 4x4 without the page ever scrolling -->
+  <!-- one face, as big as the screen will allow; app.js measures the box -->
   <div class="net-fit">
     <div class="net" id="net"></div>
   </div>
 
-  <label class="toggle" id="centres-toggle">
-    <input type="checkbox" id="edit-centers">
-    <span>Change the centre colours</span>
-  </label>
+  <div class="palette" id="palette" role="toolbar" aria-label="Color picker"></div>
 
   <p id="edit-message" class="message" role="status"></p>
 
   <div class="row-buttons">
-    <button id="btn-solve" class="btn btn-primary">Solve it →</button>
-    <button id="btn-example" class="btn">Scramble</button>
-    <button id="btn-solved" class="btn btn-ghost">Solved</button>
+    <button id="btn-edit-prev" class="btn">‹ Back</button>
+    <button id="btn-edit-next" class="btn btn-primary">Next face ›</button>
+  </div>
+  <div class="row-buttons row-quiet">
+    <button id="btn-solve" class="btn btn-ghost">Solve now</button>
+    <button id="btn-example" class="btn btn-ghost">Scramble</button>
     <button id="btn-clear" class="btn btn-ghost">Clear</button>
-    <button id="btn-home" class="btn btn-ghost">← Back</button>
+    <button id="btn-home" class="btn btn-ghost">← Home</button>
   </div>
 </main>
 
@@ -85,6 +83,7 @@
   <div class="solve-top">
     <button id="btn-back" class="btn btn-ghost btn-icon" title="Back">←</button>
     <div class="progress"><div id="progress-fill" class="progress-fill"></div></div>
+    <button id="btn-voice" class="btn btn-ghost btn-icon" title="Say &quot;next&quot; to move on" hidden>🎤</button>
     <span class="counter" id="move-counter">Move 0 of 0</span>
   </div>
 
@@ -92,13 +91,11 @@
 
   <div class="stage-canvases">
     <canvas id="solve-front-canvas" class="cube-canvas big"></canvas>
-    <canvas id="solve-back-canvas" class="cube-canvas small"></canvas>
   </div>
 
-  <div class="instruction-card">
+  <div class="instruction-card" id="instruction-card">
     <h2 class="move-title" id="move-title">Ready</h2>
     <p class="move-detail" id="move-detail">Tap Next to make the first move.</p>
-    <p class="orientation-note"><span id="orientation-note-text"></span></p>
   </div>
 
   <div class="transport">
@@ -106,16 +103,20 @@
     <button id="btn-replay" class="btn btn-icon" title="Show this move again">↻</button>
     <button id="btn-next" class="btn btn-primary btn-next" title="Next move (→)">Next ›</button>
   </div>
+
+  <button id="btn-restart" class="btn btn-ghost btn-restart">Not solved? Start over</button>
 </main>
 
 <!-- ───────────────────────── scanner ───────────────────────── -->
 <div id="scanner" class="modal" hidden>
   <div class="modal-card">
     <h2 id="scan-title">Face 1 of 6</h2>
-    <p id="scan-tip" class="hint"></p>
-    <!-- One row in portrait, two columns when the phone is turned sideways: a
-         375px-tall landscape viewport cannot stack a camera preview above the
-         Snap button and still show both. See the landscape block in styles.css. -->
+    <!--
+      Two cubes, and that is the point of this screen: what the camera sees, and
+      what has been understood from it. The second one is the only way to know
+      the read is right before the moves are written for it — and when a face
+      lands, it turns, which is also the instruction for what to do next.
+    -->
     <div class="scan-layout">
       <div class="scan-stage">
         <video id="scan-video" playsinline muted autoplay></video>
@@ -124,6 +125,15 @@
              moves when the scanner takes one by itself -->
         <div id="scan-flash" class="scan-flash" aria-hidden="true"></div>
       </div>
+
+      <div class="guide-row scan-guide">
+        <canvas id="scan-guide-canvas" class="guide-canvas"></canvas>
+        <p class="guide-line">
+          <span class="guide-arrow" id="scan-arrow" aria-hidden="true"></span>
+          <span id="scan-guide-text"></span>
+        </p>
+      </div>
+
       <div class="scan-side">
         <div id="scan-thumbs" class="scan-thumbs"></div>
         <div class="row-buttons scan-buttons">
@@ -146,6 +156,8 @@
   </div>
 </div>
 
+<canvas id="confetti" class="confetti" aria-hidden="true" hidden></canvas>
+
 <script src="js/cube.js"></script>
 <script src="js/cuben.js"></script>
 <script src="js/kociemba.js"></script>
@@ -153,11 +165,14 @@
 <script src="js/tpr.js"></script>
 <script src="js/solver4.js"></script>
 <script src="js/render.js"></script>
+<script src="js/guide.js"></script>
 <script src="js/detect.js"></script>
 <script src="js/assemble.js"></script>
 <script src="js/assemble4.js"></script>
 <script src="js/repair.js"></script>
 <script src="js/autosnap.js"></script>
+<script src="js/celebrate.js"></script>
+<script src="js/voice.js"></script>
 <script src="js/scan.js"></script>
 <script src="js/app.js"></script>
 </body>

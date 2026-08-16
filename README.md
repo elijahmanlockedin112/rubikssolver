@@ -16,23 +16,33 @@ accounts, no API keys, no network. Open `index.html` and it works, offline, fore
 1. Open the [live version](https://elijahmanlockedin112.github.io/rubikssolver/),
    or `index.html` from a copy of this repo. On a phone, use the live version —
    browsers only hand over the camera on an https:// address.
-2. Pick your cube's size and press **Scan my cube**. Hold each face up to the
-   camera; it takes the six photos itself, any order, any way up.
+2. Pick your cube's size and press **Scan my cube**. Two cubes appear: what the
+   camera sees, and the cube being built from it. Show it a face — it takes the
+   photo itself — and the second cube paints that face in, holds it long enough
+   for you to check it against the one in your hand, then **turns to show you
+   which way to turn yours**. Three turns to the left, then two tips, and it
+   has all six. Best with the cube standing on a flat surface in even light.
 3. That is the whole flow. The scan feeds straight into the solver and you land
    on the first move — there is nothing to confirm and no solution style to
-   choose. Press **Next** for each turn (← → and space work too).
+   choose. Press **Next** for each turn (← → and space work too), or turn on
+   the microphone and just say "next".
 
-If you would rather type the colours in, or fix one the camera got wrong,
-*Type the colours in instead* opens the map.
+If the cube in your hand stops matching the one on screen, **Not solved? Start
+over** goes back to the camera.
+
+If you would rather type the colours in, *Type the colours in instead* walks
+the same six-face route with a palette instead of a camera — one face at a
+time, with the same cube beside it saying which face you are on.
 
 Keep the cube in the same orientation the whole way through. After a scan there
 is nothing to line up at all: the cube on screen has been turned to match your
 last photo, so however you are already holding it is right.
 
 The whole app is built for a phone held in one hand with a cube in the other:
-three screens, each exactly one window tall, none of which ever scrolls. Every
-half turn is shown as two separate quarter turns, slowly, because a 180° spin
-has no direction to read.
+three screens, each exactly one window tall, none of which ever scrolls. The
+cube is drawn square on and cannot be dragged — one accidental swipe and the
+picture no longer matches what you are holding. Every half turn is shown as two
+separate quarter turns, slowly, because a 180° spin has no direction to read.
 
 ## Hosting it
 
@@ -108,7 +118,10 @@ survives; when more than one does, the app says so rather than guessing quietly.
 | `js/render.js` | A small software 3D renderer on a 2D canvas — 27 cubies, painter's algorithm, backface culling, animated layer turns and curved direction arrows. No WebGL, no libraries. |
 | `js/detect.js` | Finds the 3×3 grid in a photo: blob segmentation, a RANSAC-style lattice search, and a check that the seams are darker than the stickers. Runs in a few milliseconds, so it also drives the live outline. |
 | `js/assemble.js` | Names the colors against the six centres with a nine-per-color quota, then fits six unordered, arbitrarily-rotated faces into one cube by finding the arrangement that is physically possible. |
-| `js/scan.js` | Camera scanning: six snaps, any order, any way up, read on the device. |
+| `js/scan.js` | Camera scanning: six snaps, any order, any way up, read on the device — with the cube being built shown beside the camera. |
+| `js/guide.js` | The route round the cube — three turns left, two tips — and the one permutation that keeps track of which face you are looking at and which way up, so a photo (or a painted sticker) lands where it belongs. Shared by the scanner and the editor. |
+| `js/celebrate.js` | Confetti. Canvas, no images, puts itself away, and drops to a slow drift under `prefers-reduced-motion`. |
+| `js/voice.js` | "Next", out loud, via the Web Speech API. Off until asked for — it is the only thing here that leaves the device. |
 | `tools/serve.js` | Static file server for testing on a phone, plus an endpoint that saves a frame the detector could not read. No API key, nothing leaves the machine. |
 | `js/app.js` | The editor, the validation messages, and the step player. |
 
@@ -159,6 +172,10 @@ node test/solver.test.js 1000
   rather than returned quietly.
 - `test/scan.test.js` — feeds the classifier synthetic camera samples under
   tinted, uneven, noisy light and checks the cube comes back intact.
+- `test/guide.test.js` — turns a cube through the whole guided route and checks
+  the six faces read off it rebuild the original exactly, at every size. Get
+  this wrong and nothing complains: the colours simply land in the wrong
+  places, and a different cube from yours gets solved, confidently.
 
 ## Notes and limits
 
@@ -170,9 +187,13 @@ node test/solver.test.js 1000
   last move or two. The move count you see is higher than that, because every
   half turn is counted — and shown — as two quarter turns.
 - 2×2, 3×3 and 4×4. A 5×5 has the model and the renderer but no solver.
-- The sticker map is the fallback, not the front door, and it shows: fitting a
-  4×4's 96 stickers onto a 375px phone without scrolling leaves them about 26px
-  across. Scanning is what that screen size is designed around.
+- **Voice is the one thing that is not local.** Safari and Chrome both send the
+  audio to their own servers to transcribe it. That is why it is off until you
+  press the microphone, and why nothing else in the app needs a network.
+- Typing a cube in by hand assumes the standard colour scheme — white opposite
+  yellow, green opposite blue, red opposite orange — because the guided route
+  names the first face by its centre. Scanning has no such assumption: it reads
+  whatever centres it finds, so an unusual cube should be scanned, not typed.
 
 ## License
 

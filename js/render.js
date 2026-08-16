@@ -46,6 +46,10 @@
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.colors = opts.colors || ['#eee', '#fd0', '#0a6', '#05b', '#c23', '#f80'];
+    // What a sticker with no colour yet looks like. The guidance cube overrides
+    // it: there it is most of the cube to start with, and it has to read as a
+    // plain grey cube rather than as something broken.
+    this.blank = opts.blank || BLANK;
     this.size = opts.size || 3;
     this.state = opts.state || new Int8Array(6 * this.size * this.size).fill(-1);
     this.yaw = opts.yaw === undefined ? -34 : opts.yaw;
@@ -326,7 +330,7 @@
       ctx.fill();
     } else {
       var v = this.state[quad.facelet];
-      ctx.fillStyle = (v === undefined || v === null || v < 0) ? BLANK : this.colors[v];
+      ctx.fillStyle = (v === undefined || v === null || v < 0) ? this.blank : this.colors[v];
       ctx.fill();
       ctx.lineJoin = 'round';
       ctx.lineWidth = Math.max(1, (window.devicePixelRatio || 1) * 1.1);

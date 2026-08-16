@@ -1,9 +1,18 @@
 ﻿/*
  * scan.js — read a cube's colors through the camera.
  *
- * Point at a face, press the button, six times. Any order, any way up: the
- * centre sticker says which face it is, and the assembler works out the
- * rotations by finding the one arrangement that is a real cube.
+ * Two cubes on screen: the one under the camera, and the one that has been
+ * understood from it. The second is the point. A scanner that shows only what
+ * the lens sees is asking to be trusted; one that shows what it has decided can
+ * be checked at a glance, face by face, before a solution is written for it —
+ * and when a face lands, that cube turns to show which way to turn yours.
+ *
+ * The route is front, three turns to the left, then tips for the top and the
+ * bottom, and it lives in guide.js along with the bookkeeping that makes a
+ * turned cube's faces land in the right places. Following it is not required:
+ * the centre sticker says which face is which and the assembler works out the
+ * rotations, so any order and any way up still comes out right. The route is
+ * there because "any order" is not guidance.
  *
  * Reading happens on the device and takes a few milliseconds — detect.js finds
  * the 3x3 grid in the photo, assemble.js names the colours and fits the six
@@ -27,7 +36,9 @@
       stage: document.querySelector('.scan-stage'),
       canvas: document.getElementById('scan-canvas'),
       title: document.getElementById('scan-title'),
-      tip: document.getElementById('scan-tip'),
+      guideCanvas: document.getElementById('scan-guide-canvas'),
+      guideText: document.getElementById('scan-guide-text'),
+      guideArrow: document.getElementById('scan-arrow'),
       capture: document.getElementById('scan-capture'),
       undo: document.getElementById('scan-undo'),
       close: document.getElementById('scan-close'),
@@ -46,6 +57,19 @@
 
     this.samples = [];   // per capture: nine [r,g,b]
     this.centers = [];   // per capture: the middle sticker's colour
+    /*
+     * The cube being built up on screen, and the colours it is painted with.
+     *
+     * Not palette indices: the six names are only settled once all six faces
+     * are in, and this has to show something after the first one. So each
+     * sticker keeps the colour actually photographed, pushed onto a table the
+     * renderer indexes into — which makes the second cube a picture of the
+     * photographs rather than of the app's opinion of them. If a face reads
+     * badly, it looks wrong here, which is the whole reason it is on screen.
+     */
+    this.guideState = null;
+    this.guideColors = [];
+    this.guide = null;
     this.stream = null;
     this.busy = false;
     this.lastLive = 0;
@@ -64,6 +88,7 @@
     this.centers = [];
     this.busy = false;
     this.locked = null;
+    this.startGuide();
     this.size = null;
     this.sawInstead = 0;
     this.shownSize = '';
@@ -115,6 +140,9 @@
    */
   Scanner.prototype.close = function (cancelled) {
     this.running = false;
+    // the second cube runs its own render loop; without this, a scanner opened
+    // five times leaves five of them turning for the life of the page
+    if (this.guide) { this.guide.destroy(); this.guide = null; }
     if (this.stream) {
       this.stream.getTracks().forEach(function (t) { t.stop(); });
       this.stream = null;
@@ -124,6 +152,73 @@
     if (cancelled && this.opts.onCancel) this.opts.onCancel();
   };
 
+  /**
+   * The second cube: grey to start with, filling in a face at a time.
+   *
+   * Built fresh on every open, and taken down on every close — it owns a
+   * render loop, and a scanner opened five times would otherwise leave five of
+   * them running on a phone for the life of the page.
+   */
+  Scanner.prototype.startGuide = function () {
+    var N = this.opts.size || 3;
+    if (this.guide) this.guide.destroy();
+    this.guideColors = [];
+    this.guideState = new Int8Array(6 * N * N).fill(-1);
+    this.guide = new CubeGuide(this.el.guideCanvas, {
+      size: N,
+      colors: this.guideColors,
+      state: this.guideState,
+      startText: 'Stand the cube on a flat surface in even light, any face toward the camera.'
+    });
+    this.showGuide();
+  };
+
+  Scanner.prototype.showGuide = function () {
+    if (!this.guide) return;
+    var info = this.guide.instruction();
+    this.el.guideArrow.textContent = info.arrow;
+    this.el.guideText.textContent = info.text;
+  };
+
+  /**
+   * Paint the face just photographed onto the second cube, then turn it.
+   *
+   * The turn is the instruction — it happens while the cube is still in the
+   * user's hands and being moved, which is exactly when it is wanted. Nothing
+   * waits on it: auto-capture stays armed throughout, so someone quicker than
+   * the animation is not held up by it.
+   */
+  Scanner.prototype.recordGuide = function (samples) {
+    if (!this.guide) return;
+    var table = this.guideColors, base = table.length;
+    for (var i = 0; i < samples.length; i++) table.push(punchy(samples[i]));
+    var values = [];
+    for (var k = 0; k < samples.length; k++) values.push(base + k);
+    this.guide.fill(values);
+    // a beat with the face you just took still facing you, then the turn
+    if (!this.guide.atEnd()) this.guide.next(null, 700);
+    this.showGuide();
+  };
+
+  /**
+   * The photographed colour, with the chroma pushed up.
+   *
+   * A camera under indoor light returns something closer to grey than the
+   * sticker looks, and six washed-out faces on a dark screen are hard to check
+   * against a cube. Lightness is left alone — only the distance from grey is
+   * stretched — so a misread sticker still looks wrong rather than being
+   * flattered into looking right.
+   */
+  function punchy(rgb) {
+    var mid = (rgb[0] + rgb[1] + rgb[2]) / 3;
+    var out = '#';
+    for (var c = 0; c < 3; c++) {
+      var v = Math.round(Math.max(0, Math.min(255, mid + (rgb[c] - mid) * 1.45)));
+      out += (v < 16 ? '0' : '') + v.toString(16);
+    }
+    return out;
+  }
+
   Scanner.prototype.message = function (text, isError) {
     this.el.message.textContent = text || '';
     this.el.message.className = 'message' + (isError ? ' error' : '');
@@ -132,13 +227,6 @@
   Scanner.prototype.render = function () {
     var done = this.samples.length;
     this.el.title.textContent = done >= 6 ? 'Reading the cube…' : 'Face ' + (done + 1) + ' of 6';
-    // The last shot decides which way the finished cube is held, so it is worth
-    // saying before they take it rather than after.
-    this.el.tip.textContent = done === 5
-      ? 'Last one. However you hold the cube for this shot is how you should keep holding it — ' +
-        'the moves will be written for this exact view, so there is nothing to line up afterwards.'
-      : 'Hold a face up to the camera and keep still — it takes the photo itself once it is sure. ' +
-        'Any order, any way up. Snap takes one now if you would rather.';
     this.el.capture.textContent = 'Snap';
     this.el.undo.disabled = done === 0;
 
@@ -423,6 +511,7 @@
     this.centers.push(center || averageColor(found.samples));
 
     if (this.samples.length >= 6) { this.finish(); return; }
+    this.recordGuide(found.samples);
     this.render();
     this.message('Got it — ' + (6 - this.samples.length) + ' to go.');
     this.holdUntil = now + 1200;   // long enough to be read before the next prompt
@@ -487,6 +576,13 @@
     this.autoState = 'searching';
     this.shownSize = '';
     this.holdUntil = 0;
+    // put the second cube back a face as well, grey where that face was, and
+    // turn it back so it is once more showing the one to retake
+    if (this.guide) {
+      this.guide.setStep(this.samples.length, true);
+      this.guide.fill(this.guide.faceCells().map(function () { return -1; }));
+      this.showGuide();
+    }
     this.render();
     this.message('');
   };
