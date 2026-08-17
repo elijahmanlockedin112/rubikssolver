@@ -50,6 +50,88 @@ var missingText = Academy.STAGES.filter(function (s) {
 check('every stage says what it is for, what to look for, and why',
   missingText.length === 0, missingText.map(function (s) { return s.id; }).join(', '));
 
+/*
+ * And says how, in steps rather than in prose. The lesson card shows these as
+ * a numbered list and nothing else fills that space, so a stage that lost them
+ * is a stage that shows a goal and no way to reach it.
+ */
+var missingSteps = Academy.STAGES.filter(function (s) {
+  return !Array.isArray(s.steps) || s.steps.length < 2 ||
+    s.steps.some(function (t) { return typeof t !== 'string' || t.length < 10; });
+});
+check('every stage says how to do it, as steps',
+  missingSteps.length === 0, missingSteps.map(function (s) { return s.id; }).join(', '));
+
+/*
+ * The lesson card and the goal picture share a phone screen with the cube, and
+ * anything that does not fit is clipped rather than scrolled. These bars are
+ * the ones test/mobile-layout.spec.js was measured against — prose can grow
+ * back here long after the layout was checked, and nothing on this side would
+ * complain.
+ */
+var tooLong = Academy.STAGES.filter(function (s) {
+  return s.goal.length > 95 || s.steps.some(function (t) { return t.length > 106; });
+});
+check('the lesson still fits on a phone', tooLong.length === 0,
+  tooLong.map(function (s) { return s.id; }).join(', '));
+
+console.log('\nthe goal pictures');
+
+/*
+ * The picture is the revamp: a stage's goal drawn as a cube, with everything
+ * that does not have to match left black. Two things can go wrong silently —
+ * a picture that is missing (a blank cube above a lesson) and a picture that
+ * colours in stickers the stage does not actually care about, which teaches a
+ * learner to fight the cube for a pattern the method never asks for.
+ */
+var COLOURS = [10, 11, 12, 13, 14, 15];   // stand-ins, so a wrong face shows up
+var pictureFail = [];
+Academy.STAGES.forEach(function (s) {
+  var pic = Academy.goalPicture(s.id, COLOURS);
+  if (!pic) { pictureFail.push(s.id + ': none'); return; }
+  var bright = Object.keys(pic.bright), faded = Object.keys(pic.faded);
+  if (!bright.length) pictureFail.push(s.id + ': nothing to make');
+  bright.concat(faded).forEach(function (i) {
+    var at = Number(i);
+    if (!(at >= 0 && at < 54)) pictureFail.push(s.id + ': facelet ' + i);
+    var v = pic.bright[i] === undefined ? pic.faded[i] : pic.bright[i];
+    if (COLOURS.indexOf(v) < 0) pictureFail.push(s.id + ': colour ' + v);
+  });
+  bright.forEach(function (i) {
+    if (pic.faded[i] !== undefined) pictureFail.push(s.id + ': ' + i + ' is both new and kept');
+  });
+});
+check('every stage has a goal picture, in the cube’s own colours',
+  pictureFail.length === 0, pictureFail.slice(0, 6).join(' | '));
+
+/*
+ * The daisy: the yellow centre and four white petals, and — the part that
+ * makes it a daisy rather than a cross — nothing else at all.
+ */
+var daisy = Academy.goalPicture('daisy', COLOURS);
+check('the daisy is a yellow centre and four white petals, and nothing else',
+  Object.keys(daisy.bright).length === 5 && Object.keys(daisy.faded).length === 0 &&
+  daisy.bright[4] === COLOURS[0] &&
+  [1, 3, 5, 7].every(function (i) { return daisy.bright[i] === COLOURS[3]; }),
+  JSON.stringify(daisy.bright));
+
+/*
+ * The yellow cross does not care what the sides of its edges are, and a
+ * learner who thinks it does will fight the cube for an hour. The picture is
+ * the only place that says so, by leaving those four stickers black.
+ */
+var topcross = Academy.goalPicture('topcross', COLOURS);
+var SIDE_TOP_EDGES = [10, 19, 37, 46];   // R1, F1, L1, B1
+check('the yellow cross leaves the sides of its edges black',
+  SIDE_TOP_EDGES.every(function (i) {
+    return topcross.bright[i] === undefined && topcross.faded[i] === undefined;
+  }));
+
+// and the last stage is the whole cube, because that is what finishing is
+var last = Academy.goalPicture('topedges', COLOURS);
+var covered = Object.keys(last.bright).length + Object.keys(last.faded).length;
+check('the last stage’s picture is a solved cube', covered === 54, covered + ' of 54 facelets');
+
 var badAlg = Object.keys(Academy.ALGS).filter(function (id) {
   var a = Academy.ALGS[id];
   if (!a.name || !a.notation || !a.why) return true;

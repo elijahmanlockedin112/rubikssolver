@@ -135,6 +135,29 @@ function smallestSticker(page) {
   });
 }
 
+/**
+ * How much of a cube canvas is lit up: the fraction of its pixels that are
+ * brighter than the near-black a goal picture leaves behind.
+ *
+ * This is how "the goal picture is a picture" is checkable from the outside.
+ * A goal shows only the stickers that stage has to get right and blacks out
+ * the rest, so it is dramatically darker than the same cube with every sticker
+ * coloured in — and if the wiring ever stops applying the picture, what comes
+ * up is an ordinary cube, which looks entirely reasonable and is the wrong
+ * thing on screen.
+ */
+function litFraction(page, selector) {
+  return page.evaluate(function (sel) {
+    var c = document.querySelector(sel);
+    var d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    var lit = 0;
+    for (var i = 0; i < d.length; i += 4) {
+      if (d[i + 3] > 8 && (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) > 70) lit++;
+    }
+    return lit / (d.length / 4);
+  }, selector);
+}
+
 /** Every box in `sels` that is not wholly inside the window. */
 function offScreen(page, sels) {
   return page.evaluate(function (list) {
@@ -343,10 +366,10 @@ test('the home screen is a cube, a size, a choice and Scan', async function ({ p
  * Academy mode: the beginner method, on the cube that was actually scanned.
  *
  * What makes it teaching rather than a longer list of moves is the structure —
- * seven stages that are always seven, a lesson before each one, and the
- * algorithm named and written out with your place in it. Those are the things
- * checked here, because those are the things that would quietly stop
- * appearing.
+ * eight stages that are always eight, and a lesson before each one that shows
+ * the finished thing before asking for a single turn: the goal drawn as a
+ * cube, then numbered steps, then your own cube. Those are the things checked
+ * here, because those are the things that would quietly stop appearing.
  */
 test('academy teaches the beginner method on your own scramble', async function ({ page }) {
   await page.locator('.mode-option[data-mode="academy"]').click();
@@ -362,24 +385,75 @@ test('academy teaches the beginner method on your own scramble', async function 
   await expect(page.locator('#stage-line')).toContainText(/Before you start/i);
   await expect(page.locator('#move-detail')).toContainText(/white/i);
   await expect(page.locator('#btn-next')).toHaveText(/what is first/i);
+  // their whole cube, every sticker coloured: the baseline the goal is judged against
+  await page.waitForTimeout(400);
+  var wholeCube = await litFraction(page, '#solve-front-canvas');
   await page.locator('#btn-next').click();
 
-  // eight stages, whatever this particular cube needed, starting at the daisy
+  /*
+   * Eight stages, whatever this particular cube needed, starting at the daisy.
+   *
+   * The step number is on the badge over the cube rather than on a line of its
+   * own: on a 375px phone a 44px line repeating what the badge already says is
+   * 44px taken off the picture. The line comes back on the move cards below.
+   */
   await expect(page.locator('.stage-dot')).toHaveCount(8);
-  await expect(page.locator('#stage-line')).toContainText('of 8');
+  await expect(page.locator('#goal-badge')).toContainText('Step 1 of 8');
+  await expect(page.locator('#stage-line')).toBeHidden();
   await expect(page.locator('#move-title')).toContainText(/daisy/i);
 
-  // and it opens each stage on the lesson, not on a move
-  await expect(page.locator('#btn-next')).toHaveText(/Start this stage/);
-  await expect(page.locator('#academy-note')).toBeVisible();
+  /*
+   * And it opens each stage on the lesson, not on a move: the goal picture
+   * with its label, what you are making, and how to do it in numbered steps.
+   *
+   * The badge is what says the cube above is NOT your cube for the moment —
+   * it is the same canvas, turned to whichever angle that stage's goal lives
+   * at, and without the label the one genuinely confusing thing about reusing
+   * it would be mistaking one for the other.
+   */
+  await expect(page.locator('#btn-next')).toHaveText(/Show me on my cube/);
+  await expect(page.locator('#goal-badge')).toBeVisible();
+  await expect(page.locator('#goal-badge')).toContainText(/black/i);
+  await expect(page.locator('#lesson-steps li')).toHaveCount(3);
+  /*
+   * The reason is on the card in portrait and deliberately not on a phone
+   * lying on its side, where the card has about 150px of column and the steps
+   * come first. Asserted both ways round, because "it went missing" and "it
+   * was dropped on purpose" look identical from here otherwise.
+   */
+  var tall = page.viewportSize().height > page.viewportSize().width;
+  if (tall) await expect(page.locator('#lesson-why')).toBeVisible();
+  else await expect(page.locator('#lesson-why')).toBeHidden();
   var goal = await page.locator('#move-detail').textContent();
   expect(goal.length, 'the stage should say what it is for').toBeGreaterThan(30);
 
+  /*
+   * And the cube above it really is the goal: the daisy is five coloured
+   * stickers on an otherwise black cube, against twenty-odd on the cube it
+   * replaced. The camera glide is 450ms, so this waits for it to land.
+   */
+  await page.waitForTimeout(800);
+  var goalLit = await litFraction(page, '#solve-front-canvas');
+  expect(goalLit, 'the goal picture is lit ' + goalLit.toFixed(3) + ' against a whole cube at ' +
+    wholeCube.toFixed(3) + ' — it should be mostly black')
+    .toBeLessThan(wholeCube * 0.5);
+
   await page.locator('#btn-next').click();
+  // your own cube back, and the goal picture gone with it
+  await expect(page.locator('#goal-badge')).toBeHidden();
+  await expect(page.locator('#lesson-how')).toBeHidden();
   await expect(page.locator('#move-counter')).toHaveText(/Move 1 of/);
 
-  // the piece stages place four pieces each, and say which
-  await expect(page.locator('#academy-note')).toContainText(/Piece \d of \d/);
+  /*
+   * The piece stages name the piece being placed.
+   *
+   * Named, rather than counted: the scramble here is random, and a daisy that
+   * happens to arrive with three petals already up has one piece to place, so
+   * "Piece 1 of 1" is deliberately not printed. Asserting the count made this
+   * test fail on whichever profile drew that scramble, which is a flake and
+   * not a bug.
+   */
+  await expect(page.locator('#academy-note')).toContainText(/edge/i);
   await expect(page.locator('#stage-line')).toContainText(/·\s*\d+\/\d+/);
 
   /*
@@ -605,10 +679,30 @@ test('the cube is never drawn out of shape', async function ({ page }) {
 
   // the switch that broke it: same screen, rearranged underneath
   await page.locator('#btn-mode').click();
-  await expect(page.locator('#stage-strip')).toBeVisible({ timeout: 60000 });
+  /*
+   * The dots exist, rather than the strip being visible: a lesson card on a
+   * phone lying on its side puts the strip away, because the badge over the
+   * picture already says which step this is and the words need the height.
+   * Switching to Academy lands on a lesson card, so the count is the honest
+   * test of "is Academy on".
+   */
+  await expect(page.locator('.stage-dot')).toHaveCount(8, { timeout: 60000 });
   await page.waitForTimeout(300);
   await expectSquare(page, '#solve-front-canvas', 'switched to Academy');
 
+  /*
+   * And again on a lesson card, which rearranges the screen harder than the
+   * mode switch does: the quiet row stands down, the card grows, and the same
+   * canvas is showing a goal picture from a different camera.
+   */
+  await page.locator('#btn-next').click();
+  await expect(page.locator('#goal-badge')).toContainText('Step 1 of 8');
+  await page.waitForTimeout(800);
+  await expectSquare(page, '#solve-front-canvas', 'on a lesson card');
+
+  // back onto a move card, where the two quiet buttons live
+  await page.locator('#btn-next').click();
+  await expect(page.locator('#goal-badge')).toBeHidden();
   await page.locator('#btn-mode').click();
   await expect(page.locator('#stage-strip')).toBeHidden({ timeout: 60000 });
   await page.waitForTimeout(300);

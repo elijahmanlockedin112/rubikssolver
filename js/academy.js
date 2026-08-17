@@ -2,16 +2,20 @@
  * academy.js — what the layer-by-layer solution is actually teaching.
  *
  * solver.js produces the moves and tags which algorithm each one came from.
- * This is the other half: what each stage is *for*, what to look for on your
- * own cube to spot it, and the names the eight algorithms go by everywhere else,
- * so what is learned here is transferable rather than local to this app.
+ * This is the other half: what each stage is *for*, what it looks like when it
+ * is done, what to do to get there, and the names the eight algorithms go by
+ * everywhere else, so what is learned here is transferable rather than local to
+ * this app.
  *
- * The wording is aimed at someone who has never solved a cube. Two rules it
+ * The wording is aimed at someone who has never solved a cube. Three rules it
  * tries to keep:
  *
- *   - Say what to look for before saying what to do. Recognition is the part
- *     that does not come from following arrows, and it is the part every
- *     tutorial skips fastest.
+ *   - Show the finished thing first. `picture` below is the stage's goal drawn
+ *     as a cube, and it is the reason this file is not only prose: "make it
+ *     look like this" is an instruction anyone can follow, and a paragraph
+ *     describing a pattern is one nobody can.
+ *   - Then say how, in short numbered steps you can hold in your head while
+ *     looking at a cube. `steps`, not another paragraph.
  *   - Never say "just". The whole point is that none of it is obvious yet.
  *
  * The stage ids match solver.js's STAGES exactly; the algorithm ids match the
@@ -21,15 +25,102 @@
 ;(function (root) {
   'use strict';
 
+  /*
+   * ---------------------------------------------------------------------
+   * The goal pictures.
+   *
+   * A stage's goal, as a cube you can look at. Every sticker that has to be a
+   * particular colour when the stage is finished is listed here; everything
+   * else is left black, which is the honest thing to draw — "any colour at
+   * all" is a real and important part of most of these goals, and it is the
+   * part prose gets wrong. The yellow cross does not care what the sides of
+   * its edges are, and a learner who thinks it does will fight the cube for an
+   * hour.
+   *
+   * Two levels, because "what am I adding" and "what must I not break" are
+   * different questions:
+   *
+   *   bright — what this stage puts there. The new thing.
+   *   faded  — what earlier stages already put there and this one keeps.
+   *
+   * Facelets are the standard 54: U 0-8, R 9-17, F 18-26, D 27-35, L 36-44,
+   * B 45-53, each face read row-major off the unfolded net, so on a side face
+   * cells 0,1,2 touch the top and 6,7,8 touch the bottom.
+   *
+   * Colours are named by the face they belong to, because the cube's own
+   * centres decide what those colours are — OWN means "this face's own centre
+   * colour", which is what makes the picture correct on a cube with an unusual
+   * scheme instead of merely conventional.
+   */
+  var U = 0, R = 1, F = 2, D = 3, L = 4, B = 5;
+  var SIDES = [R, F, L, B];
+  var OWN = -1;
+
+  var TOP_ROW = [0, 1, 2], MIDDLE_ROW = [3, 4, 5], BOTTOM_ROW = [6, 7, 8];
+  var WHOLE_FACE = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  var PLUS = [1, 3, 4, 5, 7];
+  var FACE_CORNERS = [0, 2, 6, 8];
+
+  /** The same cells on all four side faces, each in its own colour. */
+  function sides(cells) {
+    return SIDES.map(function (f) { return [f, cells, OWN]; });
+  }
+  /** Everything the bottom two layers own, which four stages carry forward. */
+  function twoLayers() {
+    return [[D, WHOLE_FACE, D]].concat(sides(BOTTOM_ROW)).concat(sides(MIDDLE_ROW));
+  }
+
+  var PICTURES = {
+    // yellow centre, four white petals; the rest of the cube is anybody's guess
+    daisy: {
+      bright: [[U, [4], U], [U, [1, 3, 5, 7], D]],
+      faded: []
+    },
+    // the plus underneath, and the four upside-down T's that prove it is lined up
+    cross: {
+      bright: [[D, PLUS, D]].concat(sides([7])),
+      faded: []
+    },
+    corners: {
+      bright: [[D, FACE_CORNERS, D]].concat(sides([6, 8])),
+      faded: [[D, PLUS, D]].concat(sides([7]))
+    },
+    middle: {
+      bright: sides(MIDDLE_ROW),
+      faded: [[D, WHOLE_FACE, D]].concat(sides(BOTTOM_ROW))
+    },
+    // only the yellow facing up counts: the sides of these edges stay black
+    topcross: {
+      bright: [[U, PLUS, U]],
+      faded: twoLayers()
+    },
+    topface: {
+      bright: [[U, FACE_CORNERS, U]],
+      faded: twoLayers().concat([[U, PLUS, U]])
+    },
+    // corners home: their side stickers line up, the edges between them do not
+    topcorners: {
+      bright: sides([0, 2]),
+      faded: twoLayers().concat([[U, WHOLE_FACE, U]])
+    },
+    topedges: {
+      bright: sides([1]),
+      faded: twoLayers().concat([[U, WHOLE_FACE, U]]).concat(sides([0, 2]))
+    }
+  };
+
   var STAGES = [
     {
       id: 'daisy',
       title: 'The daisy',
-      goal: 'The yellow centre on top with the four white edges around it, white facing up. It ' +
-        'looks like a flower, and it is the one step here that does not have to match anything.',
-      look: 'Find a white edge — an edge is a piece with two stickers. Wherever it is, one turn of ' +
-        'the face it sits on brings it up to the top. If a petal you already have is in the way, ' +
-        'turn the top layer out of the way first: nothing is placed yet, so the top spins freely.',
+      goal: 'A white edge on each side of the yellow centre, white facing up.',
+      steps: [
+        'Find a white edge — a piece with two stickers, one of them white.',
+        'Turn the face it sits on until that edge reaches the top, white up.',
+        'If a petal is already in the way, spin the top layer first. Four petals, done.'
+      ],
+      look: 'White edges — two stickers, one of them white. One turn of the face it sits on ' +
+        'brings it up to the top.',
       why: 'Everyone is told to build the white cross straight onto the bottom, and everyone finds ' +
         'it impossible — you are matching two colours at once, on the face you cannot see, in a ' +
         'slot you then have to protect. The daisy splits that in half. Get the white edges up here ' +
@@ -38,10 +129,15 @@
     {
       id: 'cross',
       title: 'The white cross',
-      goal: 'A white plus on the bottom, and — the part that actually matters — each arm matching ' +
-        'the centre above it. Look at the sides: four little upside-down T shapes.',
-      look: 'One petal at a time. Turn the top until that petal’s other colour sits above the ' +
-        'centre of the same colour, then turn that whole face twice and it swings down into place.',
+      goal: 'A white plus underneath, each arm matching the centre above it — four upside-down ' +
+        'T shapes.',
+      steps: [
+        'Read the side colour of one petal.',
+        'Turn the TOP until that colour sits above the centre of the same colour.',
+        'Turn that whole face twice — the petal swings down the right way round.'
+      ],
+      look: 'Turn the top until the petal’s side colour sits above the centre of the same colour, ' +
+        'then turn that face twice.',
       why: 'Two turns, not one, and that is the whole trick: a half turn carries the edge from the ' +
         'top of a face to the bottom of it without flipping it over, so it arrives the right way ' +
         'round. The turn of the top layer is you doing the matching; the half turn is the cube ' +
@@ -51,11 +147,14 @@
     {
       id: 'corners',
       title: 'The white corners',
-      goal: 'The whole bottom layer: the cross plus four white corners, with a matching band of ' +
-        'colour running round the bottom of all four sides.',
-      look: 'A corner has three stickers. Find one with white on it and read its other two ' +
-        'colours — they name the two centres it belongs between. Turn the top until the corner is ' +
-        'directly above that gap, then work it down.',
+      goal: 'The whole bottom layer: white face done, and a matching band round every side.',
+      steps: [
+        'Find a top-layer corner with white on it. Its other two colours name its slot.',
+        'Turn the top until it sits directly above that gap.',
+        'Take it out, turn the top, put it back — until the white sticker faces down.'
+      ],
+      look: 'A corner with white on it, held above the gap between the two centres its other two ' +
+        'colours name.',
       why: 'The corner goes out of its slot and back in with the same pair of turns repeated: take ' +
         'it out, spin the top, put it back. Watch the white sticker as you go — each repeat turns ' +
         'it a third of the way round, so it comes to face downwards eventually, and the moment it ' +
@@ -65,12 +164,18 @@
     {
       id: 'middle',
       title: 'The middle layer',
-      goal: 'Two full layers. The bottom untouched, and the middle band of every side matching its ' +
-        'centre. Only the yellow layer left after this.',
-      look: 'You want the edges with no yellow on them — that is how you pick them out from up ' +
-        'here. Turn the top until one makes an upside-down T with the centre below it. Then look ' +
-        'at its top colour: if that colour’s centre is to the RIGHT, use the right insert; if ' +
-        'it is to the LEFT, use the left one.',
+      goal: 'Two whole layers. Every side’s middle band matching its centre, the bottom still ' +
+        'untouched.',
+      steps: [
+        'Find a top-layer edge with NO yellow on it.',
+        'Turn the top until its front colour matches the centre below: an upside-down T.',
+        // the edge that is already stuck in a middle slot is in `why`, which is
+        // one tap away — four steps here does not fit above a goal picture on a
+        // 375px phone, and the picture is the part that cannot be replaced
+        'Its top colour names a side: that centre on the RIGHT → right insert, LEFT → left.'
+      ],
+      look: 'Top-layer edges with no yellow on them. Line one up into an upside-down T, then read ' +
+        'which side its top colour belongs on.',
       why: 'The first algorithm worth learning by heart. It takes a corner of the finished bottom ' +
         'layer out of the way, drops the edge into the gap behind it, and puts the corner straight ' +
         'back — which is why the bottom looks broken half way through and is fine at the end. If ' +
@@ -80,11 +185,13 @@
     {
       id: 'topcross',
       title: 'The yellow cross',
-      goal: 'A yellow plus on the top face. Only the yellow facing up counts here — the sides of ' +
-        'those edges can be any colour at all.',
-      look: 'Look down at the top and you will see one of four things: a dot, an L, a line, or the ' +
-        'cross. Hold an L so its two yellow edges point left and away from you; hold a line so it ' +
-        'runs left to right; from a dot, hold it however you like.',
+      goal: 'A yellow plus on top. Only the yellow facing UP counts — the sides can be anything.',
+      steps: [
+        'Look down at the top: a dot, an L, a line, or the cross already.',
+        'Hold an L pointing left and away from you; hold a line left to right.',
+        'Run F R U R′ U′ F′ and look again. Dot → L → line → cross.'
+      ],
+      look: 'A dot, an L, or a line on top. The shape you have is what says how many times to run it.',
       why: 'One algorithm walks you along that chain — dot to L, L to line, line to cross — so it ' +
         'is the same six moves run once, twice or three times depending on where you started. It ' +
         'only flips edges and does not care where they are, which is deliberate: getting pieces ' +
@@ -94,11 +201,15 @@
     {
       id: 'topface',
       title: 'The whole yellow face',
-      goal: 'The top face a solid yellow. The sides will look thoroughly scrambled, and that is ' +
-        'exactly what it should look like.',
-      look: 'Count the corners already showing yellow on top: none, one, two or four. With one, ' +
-        'hold the cube so that corner is at the front left. With two, find a yellow sticker facing ' +
-        'left on the front-left corner and hold it there.',
+      goal: 'The top face solid yellow. The sides of that layer will look scrambled, and that is ' +
+        'right.',
+      steps: [
+        'Count the corners already yellow on top: none, one, two or four.',
+        'With one, hold it at the front left; with two, hold one with yellow facing LEFT there.',
+        'Run Sune, look again, repeat. It takes up to three goes.'
+      ],
+      look: 'How many corners already show yellow on top, and where the yellow of the others is ' +
+        'pointing.',
       why: 'Sune: seven moves, and the most-used algorithm in the method. It twists three corners ' +
         'at once and leaves the fourth alone. It looks like it is wrecking the cube half way ' +
         'through and then puts it all back — trusting that is most of the skill. Run it, look ' +
@@ -107,12 +218,13 @@
     {
       id: 'topcorners',
       title: 'Putting the corners home',
-      goal: 'The four top corners in the right places — each between the two centres whose colours ' +
-        'it carries. They may still be twisted; that is the next stage, not this one.',
-      look: 'A corner is in the right place if its three colours match the three faces it touches, ' +
-        'in any order at all. Find one that already is — there is nearly always one — and hold the ' +
-        'cube with it at the back right. If there is none, run the algorithm once from anywhere ' +
-        'and one will appear.',
+      goal: 'Every top corner between the two centres whose colours it carries.',
+      steps: [
+        'A corner is home when its three colours match the three faces it touches.',
+        'Find one that already is and hold the cube with it at the back right.',
+        'None home? Run the algorithm once from anywhere and one will be. Then repeat.'
+      ],
+      look: 'The one corner already between the right two centres. That is the one being protected.',
       why: 'The algorithm cycles three corners round and leaves the fourth exactly where it is, ' +
         'which is why finding the one already home matters — that is the one you are protecting. ' +
         'Everything left is facing the right way by now, so all that remains is moving pieces ' +
@@ -121,10 +233,13 @@
     {
       id: 'topedges',
       title: 'The last four edges',
-      goal: 'A solved cube.',
-      look: 'Three edges to cycle round. Look for a side that is already finished — a solid wall ' +
-        'of one colour — and hold the cube with that side at the back. If no side is finished, run ' +
-        'the algorithm once from anywhere and one will be.',
+      goal: 'A solved cube. Three edges to cycle round and every face comes out one colour.',
+      steps: [
+        'Find a side that is already a solid wall of one colour.',
+        'Hold the cube with that finished side at the BACK.',
+        'None finished? Run it once from anywhere, then again from there.'
+      ],
+      look: 'A side that is already a solid wall of one colour. Hold that one at the back.',
       why: 'The last algorithm in the method, run once or twice. Everyone reaches this point at ' +
         'least once convinced they have broken the cube two moves from the end. Run it again and ' +
         'it finishes.'
@@ -220,6 +335,38 @@
   function alg(id) { return (id && ALGS[id]) || null; }
 
   /**
+   * A stage's goal drawn as a cube.
+   *
+   * `colours[f]` is the colour of face f on the cube being taught — read off
+   * its own centres, so this comes out right on a cube whose stickers are not
+   * the usual six. Returns two maps from facelet to colour: `bright` is what
+   * this stage puts there, `faded` is what earlier stages did and this one has
+   * to keep. Anything in neither is deliberately left out: those stickers can
+   * be any colour at all when the stage is done, and saying so in a picture is
+   * the whole reason this exists.
+   */
+  function goalPicture(id, colours) {
+    var pic = PICTURES[id];
+    if (!pic || !colours) return null;
+    function paint(list) {
+      var out = {};
+      list.forEach(function (entry) {
+        var face = entry[0], cells = entry[1], from = entry[2];
+        var colour = colours[from === OWN ? face : from];
+        if (colour === undefined || colour === null || colour < 0) return;
+        cells.forEach(function (cell) { out[face * 9 + cell] = colour; });
+      });
+      return out;
+    }
+    var bright = paint(pic.bright);
+    var faded = paint(pic.faded);
+    // a sticker this stage places is not also one it is keeping, whatever the
+    // lists say — bright wins, so the two can never disagree on screen
+    Object.keys(bright).forEach(function (i) { delete faded[i]; });
+    return { bright: bright, faded: faded };
+  }
+
+  /**
    * Where you are in the algorithm you are running.
    *
    * Steps that came out of an algorithm are tagged with its id, and the same
@@ -289,8 +436,9 @@
   }
 
   var api = {
-    STAGES: STAGES, ALGS: ALGS,
-    stage: stage, alg: alg, placeInAlg: placeInAlg, pieceLabel: pieceLabel
+    STAGES: STAGES, ALGS: ALGS, PICTURES: PICTURES,
+    stage: stage, alg: alg, goalPicture: goalPicture,
+    placeInAlg: placeInAlg, pieceLabel: pieceLabel
   };
   root.Academy = api;
   if (typeof module === 'object' && module.exports) module.exports = api;

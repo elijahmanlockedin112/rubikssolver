@@ -69,7 +69,22 @@
     this.pitch = opts.pitch === undefined ? 26 : opts.pitch;
     this.zoom = opts.zoom || 1;
     this.showArrowFor = null;   // move string to draw a hint arrow for
-    this.anim = null;
+    /*
+     * Facelets to draw muted rather than at full strength, as { index: true }.
+     *
+     * Academy's goal pictures need three levels, not two: what this stage puts
+     * on the cube, what earlier stages put there and it must not break, and
+     * what genuinely does not matter yet. The third is the blank colour, and
+     * this is the second — without it "keep this" and "make this" are drawn
+     * identically and the picture stops answering the question it was drawn
+     * for.
+     */
+    this.faded = null;
+    // a strip along the top of the canvas the cube stays out of, in CSS px —
+    // see projector(), where it also shrinks the cube to fit what is left
+    this.reserveTop = 0;
+    this.anim = null;        // a layer turning
+    this.viewAnim = null;    // the camera swinging round, see glideTo
     this.dirty = true;
     this.geometry = this.buildGeometry();
     this.onStickerPick = opts.onStickerPick || null;
@@ -241,7 +256,34 @@
   };
 
   CubeView.prototype.setView = function (yaw, pitch) {
+    this.viewAnim = null;
     this.yaw = yaw; this.pitch = pitch; this.dirty = true;
+    this.start();
+  };
+
+  /**
+   * Swing the camera round to another angle rather than cutting to it.
+   *
+   * Academy shows a stage's goal from whatever angle that goal lives at — the
+   * white cross is on the bottom, the yellow face on the top — and then puts
+   * your own cube back up in the fixed solving view. Cutting between the two
+   * reads as a different cube; turning between them reads as the same cube
+   * being looked at from somewhere else, which is what it is.
+   *
+   * Snaps rather than glides when nobody can see it: an off-screen view stops
+   * ticking, and a tween nobody watched is a camera left half way round.
+   */
+  CubeView.prototype.glideTo = function (yaw, pitch, ms) {
+    if (!ms || !this.visible || (this.yaw === yaw && this.pitch === pitch)) {
+      this.setView(yaw, pitch);
+      return;
+    }
+    this.viewAnim = {
+      fromYaw: this.yaw, fromPitch: this.pitch,
+      yaw: yaw, pitch: pitch, t: 0, dur: ms
+    };
+    this.viewLast = performance.now();
+    this.dirty = true;
     this.start();
   };
 
@@ -269,6 +311,8 @@
   CubeView.prototype.playMove = function (move, duration, onDone) {
     var g = CubeN.moveGeometry(this.size, move);
     if (!g) { if (onDone) onDone(); return; }
+    // a turn is read against a still camera: land any glide first
+    if (this.viewAnim) this.setView(this.viewAnim.yaw, this.viewAnim.pitch);
     this.anim = {
       axis: g.axis, layer: g.layer, angle: g.angle,
       t: 0, dur: Math.max(60, duration || 420), move: move, onDone: onDone
@@ -296,8 +340,20 @@
     // Off screen and nothing in flight: stop the loop entirely rather than
     // spin. setState/setView/showArrowFor all set `dirty`, and becoming
     // visible restarts it, so nothing is lost by not being here.
-    if (!this.visible && !this.anim) { this.stop(); return; }
+    if (!this.visible && !this.anim && !this.viewAnim) { this.stop(); return; }
     this.resize();
+    if (this.viewAnim) {
+      var va = this.viewAnim;
+      // a view that was hidden mid-glide comes back with a huge dt, which lands
+      // it on the target in one frame rather than resuming from nowhere
+      va.t = Math.min(1, va.t + (now - (this.viewLast || now)) / va.dur);
+      this.viewLast = now;
+      var slide = this.ease(va.t);
+      this.yaw = va.fromYaw + (va.yaw - va.fromYaw) * slide;
+      this.pitch = va.fromPitch + (va.pitch - va.fromPitch) * slide;
+      this.dirty = true;
+      if (va.t >= 1) this.viewAnim = null;
+    }
     if (this.anim) {
       var dt = now - (this.last || now);
       this.last = now;
@@ -374,10 +430,23 @@
     var dpr = box.dpr;
     var w = box.w * dpr, h = box.h * dpr;
     var dist = 9.5 * this.size / 3;
+    /*
+     * A strip along the top that the cube keeps out of, in CSS pixels.
+     *
+     * Academy's goal pictures are labelled — "step 1 of 8, make this, black
+     * means anything" — and that label sits over the canvas, because a phone
+     * has no room for a row of its own. Drawing the cube centred and putting
+     * the label on top of it hid the very thing the label was pointing at: on
+     * the daisy, the label covered the daisy. So the cube is centred in what
+     * is left instead, and shrinks to fit it.
+     */
+    var reserve = Math.max(0, (this.reserveTop || 0) * dpr);
+    if (reserve > h * 0.5) reserve = h * 0.5;
+    var usable = h - reserve;
     // a bigger cube is physically bigger, so pull the camera back with it and
     // the thing stays the same size on screen
-    var focal = Math.min(w, h) * 1.55 * this.zoom * (this.size / 3);
-    var cx = w / 2, cy = h / 2;
+    var focal = Math.min(w, usable) * 1.55 * this.zoom * (this.size / 3);
+    var cx = w / 2, cy = reserve + usable / 2;
     this.dist = dist;
     return function (v) {
       var k = focal / (dist - v[2]);
@@ -436,13 +505,18 @@
       if (moving) n = rotateAbout(n, anim.axis, angle);
       n = cam(n);
       if (n[0] * -cx3 + n[1] * -cy3 + n[2] * (dist - cz3) <= 0) continue;
-      quads.push({ pts: pts.map(project), depth: depth, facelet: g.facelet, face: g.face, focus: inFocus });
+      quads.push({
+        pts: pts.map(project), depth: depth, facelet: g.facelet, face: g.face, focus: inFocus,
+        muted: !!(this.faded && this.faded[g.facelet])
+      });
     }
     quads.sort(function (a, b) { return a.depth - b.depth; });
 
     var dim = focusAxis >= 0;
     for (var q = 0; q < quads.length; q++) {
-      this.drawQuad(ctx, quads[q], dim && !quads[q].focus ? 0.42 : 1);
+      var alpha = dim && !quads[q].focus ? 0.42 : 1;
+      if (quads[q].muted) alpha *= 0.4;
+      this.drawQuad(ctx, quads[q], alpha);
     }
 
     if (anim || hint) {

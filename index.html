@@ -111,8 +111,18 @@
 
   <p id="repair-note" class="repair-note" hidden></p>
 
+  <!--
+    One cube, two jobs. Following the moves it is your cube, square on, in the
+    fixed solving view. On the way into an Academy stage it becomes that
+    stage's goal instead — the finished pattern, everything that does not
+    matter yet blacked out — and then turns back to your cube when the stage
+    starts. Same canvas on purpose: two cubes side by side on a phone are two
+    small cubes, and this way the goal is the same picture, from a different
+    angle, of the thing in your hand.
+  -->
   <div class="stage-canvases">
     <canvas id="solve-front-canvas" class="cube-canvas big"></canvas>
+    <p class="goal-badge" id="goal-badge" hidden></p>
   </div>
 
   <div class="instruction-card" id="instruction-card" aria-live="polite">
@@ -121,6 +131,15 @@
     <h2 class="move-title" id="move-title">Ready</h2>
     <p class="move-detail" id="move-detail">Tap Next to make the first move.</p>
     <p class="academy-note" id="academy-note" hidden></p>
+    <!-- the lesson: how to get from the cube in your hand to the picture above -->
+    <div class="lesson-how" id="lesson-how" hidden>
+      <p class="lesson-head" id="lesson-head">How to do it</p>
+      <ol class="lesson-steps" id="lesson-steps"></ol>
+    </div>
+    <details class="lesson-why" id="lesson-why" hidden>
+      <summary>Why this works</summary>
+      <p id="lesson-why-text"></p>
+    </details>
     <p class="alg-strip" id="alg-strip" hidden></p>
   </div>
 

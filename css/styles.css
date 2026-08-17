@@ -297,6 +297,35 @@ body.solving .topbar { display: none; }
   background: rgba(10, 12, 17, 0.92);
 }
 
+/*
+ * "This is not your cube — this is what you are making."
+ *
+ * The one thing that would be genuinely confusing about showing a goal on the
+ * same canvas as the cube being solved is mistaking one for the other, so it
+ * is labelled, and the label carries the legend as well: black means that
+ * sticker can be any colour at all when this stage is done, which is a real
+ * part of most of these goals and the part prose always gets wrong.
+ */
+.goal-badge {
+  position: absolute;
+  left: 8px; top: 8px; right: 8px;
+  margin: 0;
+  padding: 6px 9px;
+  border-radius: 9px;
+  background: rgba(8, 10, 14, 0.82);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.goal-badge[hidden] { display: none; }
+.goal-badge b {
+  display: block;
+  color: var(--accent-2);
+  font-size: 0.66rem; letter-spacing: 0.09em; text-transform: uppercase;
+}
+
 /* ---------- solve ---------- */
 .solve-top {
   flex: none;
@@ -343,6 +372,15 @@ body.solving .topbar { display: none; }
   overflow-y: auto;
 }
 body.teaching .instruction-card { max-height: 42vh; }
+body.teaching.lesson .instruction-card { max-height: 46vh; }
+/*
+ * A lesson is a screen of its own, and these two are not part of it.
+ *
+ * "Start over" and "just solve it" are the two things nobody wants while
+ * reading what a step is for, and on a 375px phone they cost 56px that the
+ * goal picture wants far more. They come straight back on the move cards.
+ */
+body.lesson .solve-quiet { display: none; }
 .move-title { font-size: 1.25rem; margin: 0 0 4px; line-height: 1.2; }
 .move-detail { margin: 0; font-size: 0.95rem; color: #cfd6e4; }
 
@@ -410,6 +448,54 @@ body.teaching .instruction-card { max-height: 42vh; }
 /* the reason an algorithm works, on the turn it starts — worth more emphasis
    than the running commentary it shares this line with */
 .academy-note.is-why { color: #cfd6e4; }
+
+/*
+ * The lesson itself: what to actually do, as numbered steps.
+ *
+ * This replaced a paragraph, and the paragraph was the problem. Four sentences
+ * of prose describing a recognition and three turns is something you read and
+ * then cannot hold; the same four sentences numbered are something you look
+ * up, do, and look up again, which is how anybody follows instructions with
+ * both hands full.
+ */
+.lesson-how { margin: 10px 0 0; }
+.lesson-how[hidden] { display: none; }
+.lesson-head {
+  margin: 0 0 6px;
+  font-size: 0.68rem; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--accent);
+}
+.lesson-steps {
+  margin: 0;
+  padding-left: 1.35em;
+  font-size: 0.88rem;
+  color: #cfd6e4;
+}
+.lesson-steps li { margin: 0 0 5px; line-height: 1.4; }
+.lesson-steps li:last-child { margin-bottom: 0; }
+.lesson-steps li::marker { color: var(--accent); font-weight: 700; }
+
+/*
+ * And the reason underneath it, folded away.
+ *
+ * Every stage here has a why worth reading and none of it is needed to make
+ * the next turn, so it costs the cube no height until someone asks for it.
+ */
+.lesson-why {
+  margin: 10px 0 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.lesson-why[hidden] { display: none; }
+.lesson-why summary {
+  display: flex; align-items: center;
+  min-height: 44px;          /* a real tap target, same bar as every button */
+  cursor: pointer;
+  color: var(--accent-2);
+  font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.lesson-why p { margin: 0 0 4px; line-height: 1.45; }
 
 /*
  * The algorithm, written the way every other tutorial writes it, with the turn
@@ -689,6 +775,36 @@ body.teaching .instruction-card { max-height: 42vh; }
   .view-home .mode-note, .view-home .flat-note { display: none; }
   .view-solve .move-title { font-size: 1.05rem; }
   .view-solve .move-detail { font-size: 0.85rem; }
+
+  /*
+   * A lesson on a phone lying on its side.
+   *
+   * The card gets about 150px of column here, and a picture caption, three
+   * numbered steps and a way into the reason want closer to 300. Measured, it
+   * scrolled half of itself out of sight — a scroll area with no affordance,
+   * hiding the instructions, which is the one thing this rebuild exists to
+   * stop. So things go, cheapest first: the stage strip (the badge over the
+   * picture already says which step this is), then the reason (one turn of the
+   * phone away), then the text gets smaller.
+   *
+   * The picture does not shrink. Everything else here can be recovered by
+   * turning the phone upright; the picture is the part that cannot.
+   */
+  /*
+   * And the columns move, which is free: the picture is as tall as its column
+   * and nothing like as wide, so the words can have the difference. A quarter
+   * more width is two fewer wrapped lines per step.
+   */
+  body.lesson .view-solve { grid-template-columns: minmax(0, 0.72fr) minmax(0, 1fr); }
+  body.lesson .stage-strip,
+  body.lesson .lesson-why { display: none; }
+  body.lesson .lesson-steps { font-size: 0.75rem; }
+  body.lesson .lesson-steps li { margin-bottom: 3px; line-height: 1.35; }
+  body.lesson .lesson-head { font-size: 0.62rem; margin-bottom: 4px; }
+  body.lesson .lesson-how { margin-top: 5px; }
+  body.lesson .instruction-card { padding: 9px 12px 7px; }
+  body.lesson .view-solve .move-title { font-size: 0.98rem; }
+  body.lesson .view-solve .move-detail { line-height: 1.35; }
 
   .modal { align-items: start; }
   #scanner .modal-card { width: min(760px, 100%); }

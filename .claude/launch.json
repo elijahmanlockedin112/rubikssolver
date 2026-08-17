@@ -5,7 +5,8 @@
       "name": "coach",
       "runtimeExecutable": "node",
       "runtimeArgs": ["tools/serve.js"],
-      "port": 8123
+      "port": 8123,
+      "autoPort": true
     }
   ]
 }

@@ -147,6 +147,34 @@
   var FRONT_VIEW = { yaw: 0, pitch: 30 };
   var BACK_VIEW = { yaw: 180, pitch: -30 };
 
+  /*
+   * Where to look from to see a stage's goal.
+   *
+   * A goal picture is useless drawn from an angle that does not show it, and
+   * the eight goals of the beginner method are not all in the same place: the
+   * daisy and the whole last layer are on top, the cross and the corners are
+   * underneath, the middle layer is a band round the sides. The solving view
+   * is square on from a little above and stays that way — this is only ever
+   * used for the goal, and the camera glides back to FRONT_VIEW the moment
+   * your own cube comes up, so the two are never confused.
+   *
+   * All eight are off the same corner, so every goal is seen as three faces
+   * from the same side of the cube: only the tilt changes, and the eye keeps
+   * its place between stages.
+   */
+  var GOAL_YAW = -32;
+  var STAGE_VIEW = {
+    daisy:      { yaw: GOAL_YAW, pitch: 52 },     // on top
+    cross:      { yaw: GOAL_YAW, pitch: -50 },    // underneath
+    corners:    { yaw: GOAL_YAW, pitch: -40 },    // underneath, and round the sides
+    middle:     { yaw: GOAL_YAW, pitch: -14 },    // the band round the middle
+    topcross:   { yaw: GOAL_YAW, pitch: 52 },
+    topface:    { yaw: GOAL_YAW, pitch: 52 },
+    topcorners: { yaw: GOAL_YAW, pitch: 40 },     // the top, and the blocks below it
+    topedges:   { yaw: GOAL_YAW, pitch: 32 }
+  };
+  var GOAL_GLIDE_MS = 450;
+
   var previewFront = new CubeView($('preview-front'), {
     colors: PALETTE, state: colorState, draggable: false,
     yaw: FRONT_VIEW.yaw, pitch: FRONT_VIEW.pitch
@@ -157,7 +185,18 @@
   });
   var solveFront = new CubeView($('solve-front-canvas'), {
     colors: PALETTE, state: colorState, draggable: false,
-    yaw: FRONT_VIEW.yaw, pitch: FRONT_VIEW.pitch
+    yaw: FRONT_VIEW.yaw, pitch: FRONT_VIEW.pitch,
+    /*
+     * Black, not the usual "no colour yet" grey.
+     *
+     * A cube being solved has no blank stickers — you cannot solve one until
+     * every sticker has a colour — so the only thing this view ever draws
+     * blank is a goal picture, where blank means "this one can be any colour
+     * at all when the stage is done". Grey would read as a sticker whose
+     * colour was not known; black reads as a sticker that is not part of the
+     * question, which is what it is.
+     */
+    blank: '#0a0c11'
   });
 
   // The grey cube on the map screen: the same route the scanner walks, so a
@@ -917,7 +956,7 @@
       dot.type = 'button';
       dot.dataset.stage = s.id;
       dot.textContent = String(s.number);
-      var label = 'Stage ' + s.number + ': ' + s.title +
+      var label = 'Step ' + s.number + ': ' + s.title +
         (s.group ? '' : ' — already done on this cube');
       dot.setAttribute('aria-label', label);
       dot.title = label;
@@ -977,12 +1016,37 @@
     $('move-title').textContent = plan.orientation.moved ? 'Turn the whole cube' : 'How to hold it';
     $('move-detail').textContent = plan.orientation.text;
     $('academy-note').hidden = false;
-    $('academy-note').textContent = 'The cube above is how yours should look once you have. ' +
-      'Turning the whole cube solves nothing and breaks nothing — the centres go with it, and they ' +
-      'are what every instruction from here is measured against.';
+    $('academy-note').textContent = 'Turning the whole cube solves nothing and breaks nothing — ' +
+      'the centres go with it, and they are what every instruction from here is measured against.';
+    setBadge('Hold it like this', 'Your cube, turned. Every step from here is written for this grip.');
     $('alg-strip').hidden = true;
     $('btn-next').textContent = 'Done — what is first? ›';
     solveFront.showArrowFor = null;
+  }
+
+  /**
+   * The label over the cube, saying what it is showing.
+   *
+   * The one thing that could be genuinely confusing about a lesson taking over
+   * the solve view is mistaking the goal for the cube in your hand, so
+   * whenever it is not your cube up there, this says so.
+   */
+  function setBadge(heading, line) {
+    var badge = $('goal-badge');
+    badge.hidden = false;
+    badge.innerHTML = '';
+    var tag = document.createElement('b');
+    tag.textContent = heading;
+    badge.appendChild(tag);
+    badge.appendChild(document.createTextNode(line));
+    /*
+     * And keep the cube out from under it. Measured rather than assumed: the
+     * label is one line or two depending on how wide the screen is, and the
+     * first version of this covered the daisy with the words describing the
+     * daisy.
+     */
+    solveFront.reserveTop = badge.offsetHeight + 14;
+    solveFront.dirty = true;
   }
 
   function atStageIntro() {
@@ -993,24 +1057,106 @@
     return !!here && !!here.group && index === here.group.start && !introDone[here.id];
   }
 
+  /*
+   * The colours of the six faces of the cube being taught, read off its own
+   * centres. Academy has already turned it white-side-down, so U is yellow and
+   * D is white on an ordinary cube — and on an unusual one this still names
+   * whatever is actually there, which is the point of reading it rather than
+   * assuming it.
+   */
+  function faceColours() {
+    var start = plan.states[0];
+    return [0, 1, 2, 3, 4, 5].map(function (f) { return start[Cube.CENTERS[f]]; });
+  }
+
+  /**
+   * A stage's goal as a cube state, plus which of its stickers are carried
+   * over from earlier stages rather than placed by this one.
+   *
+   * Everything not in the picture is left at -1, which this view draws black:
+   * on a goal picture that is not a missing sticker, it is the answer to "does
+   * this one have to match?" — and it is no.
+   */
+  function goalCube(stageId) {
+    if (!plan || !plan.states || !plan.states.length) return null;
+    var pic = Academy.goalPicture(stageId, faceColours());
+    if (!pic) return null;
+    var state = new Int8Array(stickerCount()).fill(-1);
+    var faded = {};
+    Object.keys(pic.faded).forEach(function (i) { state[i] = pic.faded[i]; faded[i] = true; });
+    Object.keys(pic.bright).forEach(function (i) { state[i] = pic.bright[i]; });
+    return { state: state, faded: faded, anyFaded: Object.keys(faded).length > 0 };
+  }
+
+  /**
+   * The lesson: the finished thing, and then how to get there.
+   *
+   * The cube above the card stops being your cube for as long as this is up
+   * and becomes the stage's goal, seen from whichever angle that goal lives
+   * at. That is the whole revamp in one sentence — "make it look like this" is
+   * an instruction anybody can follow, and the paragraph of prose that used to
+   * be here describing the same pattern was one nobody could.
+   */
   function showStageIntro(here) {
     var lesson = Academy.stage(here.id) || {};
     var pieces = pieceRun(here.group);
-    $('stage-line').hidden = false;
-    $('stage-line').textContent = 'Stage ' + here.number + ' of ' + Academy.STAGES.length;
+
+    var goal = goalCube(here.id);
+    if (goal) {
+      solveFront.setState(goal.state);
+      solveFront.faded = goal.faded;
+      var look = STAGE_VIEW[here.id] || FRONT_VIEW;
+      solveFront.glideTo(look.yaw, look.pitch, GOAL_GLIDE_MS);
+      setBadge('Step ' + here.number + ' of ' + Academy.STAGES.length + ' — make this',
+        'Black means that sticker can be any colour' +
+        (goal.anyFaded ? '. Dimmed means you have it already — keep it.' : ' when this step is done.'));
+    }
+
+    /*
+     * The step number lives on the badge here, not on its own line.
+     *
+     * On a 375px phone this card and the goal picture are sharing 460 pixels,
+     * and a 44px line saying "Step 1 of 8" above a badge already saying "Step
+     * 1 of 8" is 44 pixels taken off the picture to repeat something. The line
+     * comes back on the move cards, where it is also the way back in here.
+     */
+    $('stage-line').hidden = true;
     $('move-title').textContent = lesson.title || here.group.title;
     $('move-detail').textContent = lesson.goal || here.group.blurb || '';
-    $('academy-note').hidden = false;
+
     /*
-     * How much of it there is, before it starts. Four pieces reads as a list
-     * you can get to the end of; twenty-five moves reads as a wall — and they
-     * are the same stage.
+     * The running commentary stays off this card. It used to carry the move
+     * count as well, and that has gone up onto the "how to do it" line — a
+     * lesson has a picture, a goal and three numbered steps to fit on a phone
+     * above a cube, and every line that is not one of those four is taking
+     * height from the picture.
      */
-    $('academy-note').textContent = (pieces.length > 1
-      ? pieces.length + ' pieces, ' + here.group.count + ' moves. '
-      : here.group.count + ' moves. ') + (lesson.look || '');
+    $('academy-note').hidden = true;
+
+    /*
+     * How much of it there is, on the line that was going to say "How to do
+     * it" anyway. Four pieces reads as a list you can get to the end of;
+     * twenty-five moves reads as a wall — and they are the same stage.
+     */
+    $('lesson-head').textContent = 'How to do it · ' + (pieces.length > 1
+      ? pieces.length + ' pieces, ' + here.group.count + ' moves'
+      : here.group.count + ' moves');
+
+    var list = $('lesson-steps');
+    list.innerHTML = '';
+    (lesson.steps || []).forEach(function (text) {
+      var li = document.createElement('li');
+      li.textContent = text;
+      list.appendChild(li);
+    });
+    $('lesson-how').hidden = !list.children.length;
+
+    $('lesson-why').hidden = !lesson.why;
+    $('lesson-why').open = false;
+    $('lesson-why-text').textContent = lesson.why || '';
+
     $('alg-strip').hidden = true;
-    $('btn-next').textContent = lessonOpen ? 'Back to the moves ›' : 'Start this stage ›';
+    $('btn-next').textContent = lessonOpen ? 'Back to the moves ›' : 'Show me on my cube ›';
     solveFront.showArrowFor = null;
   }
 
@@ -1072,7 +1218,16 @@
     if (!plan) return;
     var total = plan.steps.length;
     var atEnd = index >= total;
+    /*
+     * Your cube, square on, unless a lesson takes the canvas over below — and
+     * every route through here that is not a lesson has to put all three of
+     * these back, or a goal picture is left behind on the screen as if it were
+     * the cube in your hand.
+     */
     solveFront.setState(plan.states[index]);
+    solveFront.faded = null;
+    solveFront.reserveTop = 0;
+    solveFront.glideTo(FRONT_VIEW.yaw, FRONT_VIEW.pitch, GOAL_GLIDE_MS);
 
     var here = currentStage();
     var intro = atStageIntro();
@@ -1082,6 +1237,9 @@
 
     $('stage-line').hidden = true;
     $('academy-note').hidden = true;
+    $('goal-badge').hidden = true;
+    $('lesson-how').hidden = true;
+    $('lesson-why').hidden = true;
     $('alg-strip').hidden = true;
     $('btn-next').textContent = 'Next ›';
     $('stage-line').classList.toggle('is-open', lessonOpen);
@@ -1108,7 +1266,7 @@
         // where you are inside the stage as well as inside the solve: the bar
         // at the top is over a hundred and ten moves, which is nobody's idea
         // of encouraging
-        $('stage-line').textContent = 'Stage ' + here.number + ' of ' + Academy.STAGES.length + ' · ' +
+        $('stage-line').textContent = 'Step ' + here.number + ' of ' + Academy.STAGES.length + ' · ' +
           ((lesson && lesson.title) || here.title) +
           ' · ' + (index - here.group.start + 1) + '/' + here.group.count;
         /*
@@ -1154,6 +1312,15 @@
      * written it.
      */
     document.body.classList.toggle('teaching', teaching());
+    /*
+     * A lesson card carries more than a move card — a goal, three numbered
+     * steps and a way into the reason — and it is also the one card that is
+     * read rather than glanced at, so it is allowed a little more of the
+     * screen and the cube gives it up. The cube is still the goal picture, so
+     * this is a trade rather than a giveaway: too much here and the picture
+     * this whole mode is built around stops being big enough to read.
+     */
+    document.body.classList.toggle('lesson', teaching() && intro);
     updateStageStrip();
   }
 

@@ -640,6 +640,66 @@ substance, and the complaint was fair: it was a solver with labels on.
   once and U never touches the bottom, which is why nothing can be knocked out.
 - Costs about ten moves against the old first stage. Worth it.
 
+### Academy, rebuilt around a picture of the goal
+
+The complaint was "it is not feasible to learn the cube from this", and it was
+right. The mode had eight stages, a paragraph each and a lot of correct prose,
+and a paragraph describing a pattern is a thing nobody can follow with a cube
+in their hands. **Every stage now opens on a picture of its own goal**, then
+says how, then hands the cube back.
+
+- **One canvas, two jobs.** On the way into a stage the solve cube becomes that
+  stage's goal — the finished pattern, drawn in the cube's own colours — and
+  when the stage starts it turns back into your cube. Not two cubes side by
+  side: on a phone that is two small cubes, and this way the goal is visibly
+  the same object from a different angle. `#goal-badge` is what says which of
+  the two you are looking at, and it is not optional.
+- **Black means "this one can be any colour".** `PICTURES` in `academy.js`
+  lists only the stickers a stage actually has to get right; everything else is
+  left at -1 and the solve view's `blank` is near-black. That is the part prose
+  always gets wrong — the yellow cross does not care what the sides of its
+  edges are, and a learner who thinks it does will fight the cube for an hour.
+  There is a test asserting exactly that case.
+- **Three levels, not two.** `bright` is what this stage puts there, `faded` is
+  what earlier stages did and it must keep (drawn at 0.4 alpha via
+  `CubeView.faded`), black is don't-care. "What am I adding" and "what must I
+  not break" are different questions and were being drawn identically.
+- **The camera goes where the goal is.** `STAGE_VIEW` in app.js: the daisy and
+  the last layer are on top, the cross and the corners underneath, the middle
+  layer is a band round the sides. `CubeView.glideTo` swings between that and
+  the fixed solving view rather than cutting, because a cut reads as a
+  different cube.
+- **`steps`, not prose.** Three short numbered instructions per stage. `goal`
+  and `why` are still there — `goal` is the one-line caption for the picture,
+  `why` is folded into a `<details>` and costs nothing until it is opened.
+
+**The height budget is the hard part, and it is measured, not guessed.** On a
+375px iPhone SE the lesson card and the goal picture share about 460px. Three
+things pay for the picture: the step number lives on the badge instead of on a
+44px line of its own, `.solve-quiet` stands down while a lesson is up
+(`body.lesson`), and the card is capped at 46vh. That leaves the cube 153-194px
+and no card scrolling on any stage. `test/academy.test.js` has bars on the
+length of `goal` and of each step, because prose grows back long after the
+layout was checked and nothing on the JS side would otherwise complain.
+
+A phone lying on its side has about 150px of column for the card, which is half
+what the lesson wants, so there things go instead — cheapest first: the stage
+strip (the badge already says which step this is), then the reason (one turn of
+the phone away), then the text gets smaller. The picture does not shrink; it is
+the part that cannot be recovered by turning the phone upright.
+
+**A label over a canvas hides what it is labelling.** The first version put the
+badge on top of a centred cube, and on the daisy it covered the daisy.
+`CubeView.reserveTop` is the fix: the cube is centred in what is left below the
+strip and shrinks to fit it, and app.js sets it from the badge's own measured
+height, because the badge is one line or two depending on the screen.
+
+`the goal picture is mostly black` in the mobile suite is the end-to-end guard.
+It counts lit pixels in the canvas at the daisy lesson against the same canvas
+showing the whole cube one card earlier — if the wiring ever stops applying the
+picture what comes up is an ordinary cube, which looks entirely reasonable and
+is the wrong thing on screen.
+
 ### The 2x2, which was the worst of the three sizes
 
 Reported as "2x2 recognition sucks, worse than 3x3", and it was, for a reason
