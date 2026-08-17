@@ -43,16 +43,41 @@
   /*
    * The bars. Every one of these is measured — see test/autosnap.test.js, which
    * renders moving cube faces, runs them through the real detector, and reports
-   * the figures each of these is set against. Live looks come about every
-   * 180ms, so the frame counts below are also a time: four looks is roughly
-   * two-thirds of a second of holding still.
+   * the figures each of these is set against.
+   *
+   * The three motion bars were measured at looks 180ms apart and are scaled by
+   * the gap actually seen between them, so the interval upstream can change
+   * without any of these numbers meaning something different. See `lookMs`.
    */
   var DEFAULTS = {
-    // Consecutive good, agreeing looks before a shot is taken. Live looks are
-    // 180ms apart, so four of them is about two-thirds of a second of holding
-    // the cube still — long enough to be a decision, short enough not to be a
-    // chore six times over.
+    // Consecutive good, agreeing looks before a shot is taken. Four of them,
+    // and how long that takes is up to how fast the looks arrive: at scan.js's
+    // present 100ms that is about four tenths of a second of holding the cube
+    // still — a decision rather than a glimpse, and not a chore six times over.
     stableHits: 4,
+
+    /*
+     * The interval the three motion bars below were measured at.
+     *
+     * They are quantities per look — how far the face drifted, grew, and
+     * turned since the previous one — so they mean nothing without the gap
+     * between looks. Halve the interval and a cube being turned moves half as
+     * far between looks, sails under every one of them, and gets photographed
+     * mid-turn: the bars would silently stop being the thing they were
+     * measured to be.
+     *
+     * So the gap is measured rather than assumed, and the bars are scaled by
+     * it. The numbers below stay exactly as measured at 180ms, and the
+     * interval upstream is free to change without re-measuring anything.
+     *
+     * Clamped either side, because the scaling is only honest over the range a
+     * live loop actually varies across. A long stall — a slow frame, a tab
+     * coming back — would otherwise inflate the tolerances far enough to admit
+     * a cube being turned, which is precisely what they exist to catch.
+     */
+    lookMs: 180,
+    lookScaleMin: 0.5,
+    lookScaleMax: 1.5,
 
     /*
      * Fraction of the N*N cells that must be a patch the detector actually
@@ -173,8 +198,10 @@
     rearmDiff: 10,
 
     // A floor under the rearm in ms, so one shot cannot be followed instantly
-    // by another however fast the frames happen to arrive.
-    cooldownMs: 700
+    // by another however fast the frames happen to arrive. It is a floor and
+    // not a wait: the rearm still needs the view to become something else, and
+    // on a cube being turned to its next face that takes longer than this.
+    cooldownMs: 420
   };
 
   /** k quarter turns of one face's samples, for any cube size. */
@@ -241,6 +268,7 @@
   AutoSnap.prototype.reset = function () {
     this.hits = 0;          // consecutive good, agreeing looks
     this.prev = null;       // the previous accepted look
+    this.prevAt = 0;        // when it arrived, so the motion bars can be scaled
     this.armed = true;
     this.clear = 0;         // consecutive looks at something other than the last face
     this.lastFace = null;   // samples of the face just captured
@@ -268,15 +296,30 @@
     return true;
   };
 
-  /** Has the face stayed put, at the same size, since the previous look? */
-  AutoSnap.prototype.stillThere = function (look) {
+  /**
+   * Has the face stayed put, at the same size, since the previous look?
+   *
+   * `gap` is how long ago that previous look was, in ms. The three motion bars
+   * are quantities per look and are scaled by it, so they mean the same thing
+   * however fast the looks are arriving — see lookMs. A gap of 0 or undefined
+   * means "no timing available", and the bars are then used exactly as
+   * measured.
+   */
+  AutoSnap.prototype.stillThere = function (look, gap) {
     var prev = this.prev;
     if (!prev || prev.size !== look.size) return false;
-    if (angleGap(axisAngle(prev), axisAngle(look)) > this.opt.angleTol) return false;
+    var scale = 1;
+    if (gap > 0) {
+      scale = Math.max(this.opt.lookScaleMin,
+        Math.min(this.opt.lookScaleMax, gap / this.opt.lookMs));
+    }
+    if (angleGap(axisAngle(prev), axisAngle(look)) > this.opt.angleTol * scale) return false;
     var a = centroid(prev.quad), b = centroid(look.quad);
     var moved = Math.hypot(a.x - b.x, a.y - b.y);
-    if (moved > this.opt.moveTol * look.step) return false;
-    if (Math.abs(look.step - prev.step) > this.opt.sizeTol * prev.step) return false;
+    if (moved > this.opt.moveTol * scale * look.step) return false;
+    if (Math.abs(look.step - prev.step) > this.opt.sizeTol * scale * prev.step) return false;
+    // Colour is not scaled: it is not a rate. Two looks at one face read the
+    // same however long apart they are.
     return sameColors(prev.samples, look.samples) <= this.opt.colorTol;
   };
 
@@ -307,9 +350,12 @@
     if (!good) {
       this.hits = 0;
       this.prev = null;
+      this.prevAt = 0;
     } else {
-      this.hits = this.stillThere(look) ? this.hits + 1 : 1;
+      var gap = this.prevAt ? now - this.prevAt : 0;
+      this.hits = this.stillThere(look, gap) ? this.hits + 1 : 1;
       this.prev = look;
+      this.prevAt = now;
     }
 
     var lock = Math.min(1, this.hits / this.opt.stableHits);
@@ -341,6 +387,7 @@
     this.clear = 0;
     this.hits = 0;
     this.prev = null;
+    this.prevAt = 0;
     this.lastFace = samples;
     this.lastSize = size;
     this.cooldownUntil = now + this.opt.cooldownMs;

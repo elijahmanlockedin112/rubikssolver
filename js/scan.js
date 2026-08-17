@@ -25,7 +25,26 @@
 
   var PREVIEW_EDGE = 320;   // the live overlay searches a copy this size
   var CAPTURE_EDGE = 900;   // stills are kept this big for colour sampling
-  var LIVE_INTERVAL = 180;  // ms between live detections
+  /*
+   * ms between live detections.
+   *
+   * This is what auto-capture's reaction time is made of: it wants four
+   * agreeing looks, so the wait before a shot is four of these. At 180 that
+   * was most of a second of holding a cube still in front of a green outline
+   * that had clearly already recognised it, which is a long time when it has
+   * to happen six times over.
+   *
+   * A look costs 5-10ms (detect.js measures it), so the old interval was not
+   * paying for anything — ten a second is still under a tenth of one core, and
+   * the outline tracks the cube visibly better as a bonus.
+   *
+   * The evidence required is unchanged: still four looks, still agreeing on
+   * position, size, angle and colour. autosnap.js scales its three motion bars
+   * by the gap it actually measures between looks, so shortening this does not
+   * quietly loosen them — see `lookMs` there, which is the interval they were
+   * measured at.
+   */
+  var LIVE_INTERVAL = 100;
   /*
    * Below this, two readings are the same face. The same bar the rearm uses,
    * and measured against real faces of real cubes in test/autosnap.test.js:
@@ -326,7 +345,26 @@
     var found = CubeDetect.detectFace(frame, { size: wanted });
     if (found && !found.failed) { this.sawInstead = 0; return found; }
 
-    var other = CubeDetect.detectAny(frame, { sizes: [5, 4, 3].filter(function (n) { return n !== wanted; }) });
+    /*
+     * Only BIGGER, and only sizes this app can actually scan.
+     *
+     * The one thing this second look is for is saying "that is a 4x4 and you
+     * are scanning a 3x3", and wrongSizeMessage will not report a smaller grid
+     * because a smaller lattice fits inside a bigger one and finding one says
+     * nothing. So looking for smaller sizes was work whose every outcome was
+     * discarded — and on a 4x4 scan, which is the slowest size to search, it
+     * was the whole of the second look.
+     *
+     * Five is gone for a better reason than cost. There is no 5x5 anywhere in
+     * this app — the size picker offers 2, 3 and 4 — so the only sentence that
+     * probe could ever produce was "that is a 5x5 face, and you are scanning a
+     * 3x3", in red, at somebody holding a 3x3. It cannot be right, and
+     * detect.js's own note says the failure mode it needs to survive is
+     * exactly this: background texture breaking into sticker-sized blobs and a
+     * 3x3 frame reading as something bigger.
+     */
+    var bigger = [4, 3].filter(function (n) { return n > wanted; });
+    var other = bigger.length ? CubeDetect.detectAny(frame, { sizes: bigger }) : null;
     this.sawInstead = other ? other.size : 0;
     return null;
   };

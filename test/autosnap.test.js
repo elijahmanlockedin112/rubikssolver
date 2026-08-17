@@ -43,7 +43,10 @@ var BASE = [
 // The live loop searches a copy PREVIEW_EDGE (320) across, so measure there.
 var W = 320, H = 240;
 var FRAME = { width: W, height: H };
-var TICK = 180;   // ms between live looks, same as scan.js
+// ms between live looks. The interval autosnap.js's motion bars were measured
+// at, not scan.js's live loop, which is faster — "the rate the looks arrive at
+// does not change the answer" below is what says those two can differ safely.
+var TICK = 180;
 
 /** One frame. Same renderer as detect.test.js, plus a specular blob. */
 function renderFace(cells, o) {
@@ -156,7 +159,7 @@ function nothing(n) {
  * Captures are fed back in, exactly as scan.js does it, so the rearm is under
  * test as much as the trigger.
  */
-function play(auto, frames) {
+function play(auto, frames, tick) {
   var now = 0, shots = [];
   frames.forEach(function (o, i) {
     var reading = o === null ? null : look(o.cells, o);
@@ -165,7 +168,7 @@ function play(auto, frames) {
       shots.push({ at: i, cells: o.cells });
       auto.captured(reading.samples, reading.size, now);
     }
-    now += TICK;
+    now += tick || TICK;
   });
   return shots;
 }
@@ -205,6 +208,46 @@ for (var t = 0; t < trials; t++) {
 }
 check('an empty frame is never photographed', falseFires === 0, falseFires + '/' + trials);
 check('a cube being turned is never photographed', movingFires === 0, movingFires + '/' + trials);
+
+/*
+ * The same judgement, whatever rate the looks arrive at.
+ *
+ * scan.js's live loop got faster, and the three motion bars are quantities per
+ * look — how far the face drifted, grew and turned since the last one. Halve
+ * the interval and a cube being turned moves half as far between looks, so
+ * every one of those bars would silently become twice as forgiving and a cube
+ * on its way past would get photographed mid-turn.
+ *
+ * autosnap.js scales them by the gap it measures between looks, so this runs
+ * the identical motion at three different rates and demands the same answer
+ * each time: a held face is kept, a turning one is not. It is the guard on the
+ * live interval being a free choice rather than a load-bearing constant.
+ */
+console.log('\nthe rate the looks arrive at does not change the answer');
+
+[100, 180, 260].forEach(function (tick) {
+  var held = 0, turning = 0, twice = 0;
+  for (var t = 0; t < trials; t++) {
+    var N = SIZES[t % 3];
+    /*
+     * Sixty looks of one face, which at 100ms is six seconds of leaving it
+     * sitting in front of the camera. The rearm counts looks at something
+     * else rather than milliseconds, so a faster loop should not shorten it —
+     * but the cooldown under it is in milliseconds, and that one did come
+     * down with the interval.
+     */
+    var shots = play(new AutoSnap(), run('held', scrambledFaces(N)[0], baseFor(N), 60), tick);
+    if (shots.length >= 1) held++;
+    if (shots.length > 1) twice++;
+    if (play(new AutoSnap(), run('turning', scrambledFaces(N)[0], baseFor(N), 20), tick).length) turning++;
+  }
+  check('at ' + tick + 'ms a look: a held face is still photographed',
+    held === trials, held + '/' + trials);
+  check('at ' + tick + 'ms a look: a turning cube is still refused',
+    turning === 0, turning + '/' + trials + ' fired mid-turn');
+  check('at ' + tick + 'ms a look: one face left there is still one photo',
+    twice === 0, twice + '/' + trials + ' fired twice');
+});
 
 console.log('\none glimpse is not confidence');
 var glimpses = 0;

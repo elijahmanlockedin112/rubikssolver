@@ -215,6 +215,47 @@ have no centre sticker and nothing else to go on. That is worth knowing when
 testing it: a 3x3 held in front of the camera sits at one photo with the rearm
 deliberately deleted, and proves nothing.
 
+### Making it snap sooner, without lowering the bar
+
+Reported as "a decent delay" before it takes the photo, and it was: four
+agreeing looks at 180ms each is most of a second of holding a cube still in
+front of an outline that had obviously already recognised it, six times over.
+
+The live interval is now **100ms**, so the same four looks take about 400ms.
+The evidence is unchanged — still four looks agreeing on position, size, angle
+and colour — and a look costs 5-10ms, so the old interval was not buying
+anything.
+
+**The catch, which is the whole reason this is written down:** the three motion
+bars in autosnap.js (`moveTol`, `sizeTol`, `angleTol`) are quantities *per
+look*. Halve the interval and a cube being turned moves half as far between
+looks, so every one of those bars silently becomes twice as forgiving and a
+cube on its way past gets photographed mid-turn. So autosnap.js now measures
+the gap between looks and scales those three by it, against `lookMs: 180` —
+the interval they were measured at. The numbers stay exactly as measured and
+the interval upstream is a free choice. `the rate the looks arrive at does not
+change the answer` in `test/autosnap.test.js` runs identical motion at 100,
+180 and 260ms and demands the same verdict from all three; it is what makes
+that claim true rather than hoped for.
+
+`cooldownMs` came down 700 → 420 with it. It is a floor under the rearm, not a
+wait: turning a cube to its next face takes longer than that anyway.
+
+### The second look only looks for bigger cubes now
+
+When the wanted size is not found, `look()` takes another pass to say what it
+*can* see. That pass was searching sizes 5, 4 and 3 — and every outcome except
+"bigger than what you asked for" is thrown away by `wrongSizeMessage`, because
+a smaller lattice fits inside a bigger one and finding one says nothing.
+
+Worse, **there is no 5x5 anywhere in this app.** The only sentence that probe
+could ever produce was "that is a 5×5 face, and you are scanning a 3×3", in
+red, at somebody holding a 3x3 — and detect.js's own note says the failure it
+has to survive is exactly this, background texture breaking into sticker-sized
+blobs and a small frame reading as something bigger. It now looks only for
+sizes above the wanted one, which on a 4x4 scan means the second pass does not
+happen at all.
+
 ### Two things this turned up
 
 - **The live loop never stopped.** The sixth photo closes the scanner from
@@ -681,12 +722,6 @@ things pay for the picture: the step number lives on the badge instead of on a
 and no card scrolling on any stage. `test/academy.test.js` has bars on the
 length of `goal` and of each step, because prose grows back long after the
 layout was checked and nothing on the JS side would otherwise complain.
-
-A phone lying on its side has about 150px of column for the card, which is half
-what the lesson wants, so there things go instead — cheapest first: the stage
-strip (the badge already says which step this is), then the reason (one turn of
-the phone away), then the text gets smaller. The picture does not shrink; it is
-the part that cannot be recovered by turning the phone upright.
 
 **A label over a canvas hides what it is labelling.** The first version put the
 badge on top of a centred cube, and on the daisy it covered the daisy.
